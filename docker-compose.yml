@@ -1,0 +1,54 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+
+  nats:
+    image: nats:2
+    ports:
+      - "4222:4222"
+
+  gateway:
+    build:
+      context: .
+      args:
+        SERVICE: gateway
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+      - nats
+
+  tracker:
+    build:
+      context: .
+      args:
+        SERVICE: tracker
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+      - nats
+
+  writer:
+    build:
+      context: .
+      args:
+        SERVICE: writer
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+      - nats
+
+  commands:
+    build:
+      context: .
+      args:
+        SERVICE: commands
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+      - nats

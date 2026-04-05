@@ -1,0 +1,7 @@
+.env
+.env.*
+bot_token.txt
+*.log
+bin/
+dist/
+vendor/
