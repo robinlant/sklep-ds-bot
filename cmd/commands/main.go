@@ -31,6 +31,7 @@ func main() {
 	if cfg.DiscordGuildID == "" {
 		log.Fatal("DISCORD_GUILD_ID is required")
 	}
+	log.Printf("commands service starting guild=%s", cfg.DiscordGuildID)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -64,6 +65,7 @@ func main() {
 	if err := appcommands.RegisterCommands(ctx, dg, cfg.DiscordApplicationID, cfg.DiscordGuildID); err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("application commands registered count=%d guild=%s", len(appcommands.Commands()), cfg.DiscordGuildID)
 
 	<-ctx.Done()
 }

@@ -136,6 +136,27 @@ func TestEqualBalancesUsersEvenly(t *testing.T) {
 	}
 }
 
+func TestEqualAcceptsNilContext(t *testing.T) {
+	guildID := "g1"
+	channels := []*discordgo.Channel{{ID: "c1", GuildID: guildID, Type: discordgo.ChannelTypeGuildVoice}, {ID: "c2", GuildID: guildID, Type: discordgo.ChannelTypeGuildVoice}}
+	voiceStates := []*discordgo.VoiceState{{GuildID: guildID, UserID: "u1", ChannelID: "c1"}, {GuildID: guildID, UserID: "u2", ChannelID: "c2"}}
+	members := []*discordgo.Member{{GuildID: guildID, User: &discordgo.User{ID: "u1"}}, {GuildID: guildID, User: &discordgo.User{ID: "u2"}}}
+	state := newShuffleState(guildID, channels, voiceStates, members)
+	mover := newFakeShuffleMover()
+	for _, channel := range channels {
+		mover.perms[channel.ID] = discordgo.PermissionViewChannel | discordgo.PermissionVoiceConnect | discordgo.PermissionVoiceMoveMembers
+	}
+	svc := New(state, mover, "bot", rand.New(rand.NewSource(1)))
+
+	result, err := svc.Equal(nil, guildID, []string{"c1", "c2"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.MovedUsers != 2 {
+		t.Fatalf("moved users = %d, want 2", result.MovedUsers)
+	}
+}
+
 func TestEqualErrorsWhenNotEnoughPeople(t *testing.T) {
 	guildID := "g1"
 	channels := []*discordgo.Channel{

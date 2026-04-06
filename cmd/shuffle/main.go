@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -30,6 +31,7 @@ func main() {
 	if cfg.DiscordGuildID == "" {
 		log.Fatal("DISCORD_GUILD_ID is required")
 	}
+	log.Printf("shuffle service starting guild=%s", cfg.DiscordGuildID)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -53,7 +55,11 @@ func main() {
 	}
 	defer dg.Close()
 
-	botUserID := <-ready
+	botUserID, err := waitForBotUserID(ctx, ready, 30*time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("shuffle service ready guild=%s", cfg.DiscordGuildID)
 
 	service := shuffle.New(dg.State, dg, botUserID, rand.New(rand.NewSource(time.Now().UTC().UnixNano())))
 	service.Install(dg, cfg.DiscordGuildID)
@@ -61,6 +67,23 @@ func main() {
 	if err := appcommands.RegisterCommands(ctx, dg, cfg.DiscordApplicationID, cfg.DiscordGuildID); err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("shuffle commands registered count=%d guild=%s", len(appcommands.Commands()), cfg.DiscordGuildID)
 
 	<-ctx.Done()
+}
+
+func waitForBotUserID(ctx context.Context, ready <-chan string, timeout time.Duration) (string, error) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case botUserID := <-ready:
+		if botUserID == "" {
+			return "", fmt.Errorf("discord ready event missing bot user id")
+		}
+		return botUserID, nil
+	case <-timer.C:
+		return "", fmt.Errorf("timeout waiting for discord ready event: %w", context.DeadlineExceeded)
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }

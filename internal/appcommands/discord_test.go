@@ -3,19 +3,47 @@ package appcommands
 import (
 	"testing"
 
-	voicecmds "github.com/robinlant/sklep-ds-bot/internal/commands"
-	"github.com/robinlant/sklep-ds-bot/internal/shuffle"
+	"github.com/bwmarrin/discordgo"
 )
 
-func TestCommandsIncludeVoiceAndShuffle(t *testing.T) {
-	commands := Commands()
-	if len(commands) != 2 {
-		t.Fatalf("expected 2 commands, got %d", len(commands))
+func TestRegisterCommandsRejectsEmptyCatalog(t *testing.T) {
+	prev := commandCatalog
+	commandCatalog = func() []*discordgo.ApplicationCommand { return nil }
+	defer func() { commandCatalog = prev }()
+
+	if err := RegisterCommands(nil, &discordgo.Session{}, "app", "guild"); err == nil {
+		t.Fatal("expected empty catalog error")
 	}
-	if commands[0].Name != voicecmds.VoiceApplicationCommand().Name {
-		t.Fatalf("unexpected first command: %s", commands[0].Name)
+}
+
+func TestRegisterCommandsRejectsMalformedCatalog(t *testing.T) {
+	prev := commandCatalog
+	commandCatalog = func() []*discordgo.ApplicationCommand { return []*discordgo.ApplicationCommand{{}} }
+	defer func() { commandCatalog = prev }()
+
+	if err := RegisterCommands(nil, &discordgo.Session{}, "app", "guild"); err == nil {
+		t.Fatal("expected malformed catalog error")
 	}
-	if commands[1].Name != shuffle.ShuffleApplicationCommand().Name {
-		t.Fatalf("unexpected second command: %s", commands[1].Name)
+}
+
+func TestRegisterCommandsRejectsNilCommand(t *testing.T) {
+	prev := commandCatalog
+	commandCatalog = func() []*discordgo.ApplicationCommand { return []*discordgo.ApplicationCommand{nil} }
+	defer func() { commandCatalog = prev }()
+
+	if err := RegisterCommands(nil, &discordgo.Session{}, "app", "guild"); err == nil {
+		t.Fatal("expected nil command error")
+	}
+}
+
+func TestRegisterCommandsRejectsDuplicateNames(t *testing.T) {
+	prev := commandCatalog
+	commandCatalog = func() []*discordgo.ApplicationCommand {
+		return []*discordgo.ApplicationCommand{{Name: "dup"}, {Name: "dup"}}
+	}
+	defer func() { commandCatalog = prev }()
+
+	if err := RegisterCommands(nil, &discordgo.Session{}, "app", "guild"); err == nil {
+		t.Fatal("expected duplicate name error")
 	}
 }

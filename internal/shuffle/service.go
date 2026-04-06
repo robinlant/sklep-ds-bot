@@ -47,6 +47,9 @@ func (s *Service) Equal(ctx context.Context, guildID string, channelIDs, exclude
 	if s == nil || s.state == nil || s.mover == nil {
 		return Result{}, fmt.Errorf("shuffle service is unavailable")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	guildID = strings.TrimSpace(guildID)
 	if guildID == "" {
 		return Result{}, fmt.Errorf("guild id is required")
