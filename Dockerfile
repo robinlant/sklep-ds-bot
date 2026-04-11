@@ -1,19 +1,17 @@
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS build
+FROM python:3.12-slim
 
-WORKDIR /src
-RUN apk add --no-cache git
+WORKDIR /app
 
-COPY go.mod ./
-COPY go.sum ./
-RUN go mod download
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-COPY . .
+COPY pyproject.toml ./
+COPY voice_tracker ./voice_tracker
+COPY services ./services
+
+RUN pip install --no-cache-dir .
 
 ARG SERVICE
-ARG TARGETOS
-ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/app ./cmd/${SERVICE}
+ENV SERVICE=${SERVICE}
 
-FROM gcr.io/distroless/static-debian12
-COPY --from=build /out/app /app
-ENTRYPOINT ["/app"]
+CMD ["sh", "-c", "python -m services.${SERVICE}"]

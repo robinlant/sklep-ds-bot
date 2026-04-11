@@ -1,6 +1,6 @@
 # Voice Tracker
 
-Modular Discord voice-session tracker built around Go services, MongoDB, and NATS.
+Modular Discord voice-session tracker built around Python services, MongoDB, and NATS.
 
 ## What It Does
 
@@ -14,11 +14,11 @@ Modular Discord voice-session tracker built around Go services, MongoDB, and NAT
 
 ## Services
 
-- `cmd/gateway`: Discord entrypoint. Converts Discord events into NATS messages and posts session summaries.
-- `cmd/tracker`: Owns voice-session lifecycle and participant timing in MongoDB.
-- `cmd/writer`: Turns a closed session into a formatted recap.
-- `cmd/commands`: Owns the `/voice` guild admin command tree.
-- `cmd/shuffle`: Owns the `/shuffle` reshuffle command tree.
+- `services.gateway`: Discord entrypoint. Converts Discord events into NATS messages and posts session summaries.
+- `services.tracker`: Owns voice-session lifecycle and participant timing in MongoDB.
+- `services.writer`: Turns a closed session into a formatted recap.
+- `services.commands`: Owns the `/voice` guild admin command tree.
+- `services.shuffle`: Owns the `/shuffle` reshuffle command tree.
 
 ## Runtime Dependencies
 
@@ -28,7 +28,7 @@ Modular Discord voice-session tracker built around Go services, MongoDB, and NAT
 
 ## CI/CD
 
-- `CI` runs tests on every push and pull request.
+- `CI` installs Python dependencies, compiles the package, and runs pytest.
 - After `CI` succeeds on `main`, `Release` publishes immutable `ghcr.io/robinlant/sklep-ds-bot/<service>:<sha>` images for `gateway`, `tracker`, `writer`, `commands`, and `shuffle`, then records the next semver git tag from Conventional Commit messages.
 
 ## Event Flow
@@ -45,10 +45,19 @@ Modular Discord voice-session tracker built around Go services, MongoDB, and NAT
 
 See `.env.example` for the shared environment layout and `EXAMPLES.md` for a copy-and-run walkthrough.
 
+## Local Development
+
+Install Python 3.12, then run:
+
+```bash
+python -m pip install -e ".[test]"
+pytest
+```
+
 ## Examples
 
 - `EXAMPLES.md` (compose usage, `.env` example, and setup notes)
-- `infra/docker-compose.yml` (editable local stack)
+- `docker-compose.yml` (editable local stack)
 
 ## Commands
 
@@ -67,20 +76,7 @@ See `.env.example` for the shared environment layout and `EXAMPLES.md` for a cop
 ## For AI Agents
 
 - Keep services thin and role-focused.
-- Treat `internal/domain` as the shared contract layer.
+- Treat `voice_tracker.domain` as the shared contract layer.
 - Treat NATS subjects as the service boundary.
-- Do not move persistence logic into `cmd/*` unless the service owns the state.
+- Do not move persistence logic into `services/*` unless the service owns the state.
 - Prefer minimal changes that preserve the event flow above.
-
-## Service Docs
-
-- `cmd/gateway/README.md`
-- `cmd/tracker/README.md`
-- `cmd/writer/README.md`
-- `cmd/commands/README.md`
-- `cmd/shuffle/README.md`
-- `internal/bus/README.md`
-- `internal/domain/README.md`
-- `internal/mongo/README.md`
-- `internal/summary/README.md`
-- `internal/shuffle/README.md`

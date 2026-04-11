@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-tracker"
+version = "0.1.0"
+description = "Modular Discord voice-session tracker built with Python, MongoDB, and NATS."
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.9,<4",
+    "discord.py>=2.3,<3",
+    "nats-py>=2.7,<3",
+    "pymongo>=4.6,<5",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.23,<1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["voice_tracker*", "services*"]
