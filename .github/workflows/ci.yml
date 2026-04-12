@@ -19,11 +19,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          go-version-file: go.mod
-          cache: true
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[test]"
+
+      - name: Compile
+        run: python -m compileall voice_tracker services tests
 
       - name: Run tests
-        run: go test ./...
+        run: pytest
