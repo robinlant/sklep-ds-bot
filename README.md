@@ -8,12 +8,12 @@ Modular Discord voice-session tracker built around Python services, MongoDB, and
 - Stores session and participant history in MongoDB.
 - Builds recaps when a session ends.
 - Posts recaps back to the configured audit/output channel.
-- Lets admins manage voice tracking, audit output, autorole, inspection, and command metadata through `/audit`, `/bot-setting`, `/track`, `/track-list`, `/inspect`, and `/autorole`.
+- Lets admins manage voice tracking, audit output, autorole, auto-unmute, inspection, and command metadata through `/audit`, `/bot-setting`, `/track`, `/track-list`, `/inspect`, `/autorole`, and `/unmute`.
 - Lets any user jump into a visible voice/stage channel, view aggregate dashboards, and inspect member voice stats through `/jump`, `/dashboard`, and `/userinfo`.
 
 ## Services
 
-- `services.gateway`: Discord entrypoint. Converts Discord voice events into NATS messages, posts session summaries, and handles member-join side effects when enabled.
+- `services.gateway`: Discord entrypoint. Converts Discord voice events into NATS messages, posts session summaries, handles member-join side effects when enabled, and auto-unmutes listed users on server-mute.
 - `services.tracker`: Owns voice-session lifecycle and participant timing in MongoDB.
 - `services.writer`: Turns a closed session into a formatted recap.
 - `services.commands`: Owns the public Discord slash-command registration and the admin/public command handlers.
@@ -79,6 +79,9 @@ pytest
 - `/track-list clear` clears the tracked channel list.
 - `/inspect channel:<voice|stage>` shows active session details for one voice or stage channel.
 - `/autorole role:<role>` configures the role that will be assigned on member join.
+- `/unmute add user:<member>` adds a user to the auto-unmute list. When a listed user is server-muted in a voice channel, the bot immediately unmutes them.
+- `/unmute remove user:<member>` removes a user from the auto-unmute list.
+- `/unmute list` shows the current auto-unmute user list.
 
 ### ALL_USER
 
@@ -92,7 +95,8 @@ pytest
 2. Run `/bot-setting` to confirm the current guild settings and registration state.
 3. Configure the tracked channels with `/track add`, `/track remove`, `/track list`, and `/track-list clear`.
 4. Configure `/autorole` if you want members to receive a role on join.
-5. Use `/jump`, `/dashboard`, and `/userinfo` as the user-facing commands.
+5. Configure `/unmute add` if you want specific users to be auto-unmuted when server-muted.
+6. Use `/jump`, `/dashboard`, and `/userinfo` as the user-facing commands.
 
 If no audit channel is configured, recaps cannot be delivered until one is set. Keep that destination in place before relying on voice-session summaries.
 
