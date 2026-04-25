@@ -230,32 +230,67 @@ class Service:
         key = _session_key(guild_id, channel_id)
         with self._lock:
             state = self._sessions.get(key)
-            if state is None:
-                return None
+            if state is not None:
+                participant = state.participants.get(user_id)
+                if participant is not None:
+                    duration_ms = int((occurred_at - participant.joined_at).total_seconds() * 1000)
+                    if duration_ms < 0:
+                        duration_ms = 0
+                    self.repo.CloseParticipant(participant.id, occurred_at, duration_ms)
+                    del state.participants[user_id]
 
-            participant = state.participants.get(user_id)
-            if participant is None:
-                return None
+                    if state.participants:
+                        return None
 
-            duration_ms = int((occurred_at - participant.joined_at).total_seconds() * 1000)
-            if duration_ms < 0:
-                duration_ms = 0
-            self.repo.CloseParticipant(participant.id, occurred_at, duration_ms)
-            del state.participants[user_id]
+                    self.repo.CloseSession(state.session.id, occurred_at, user_id)
+                    del self._sessions[key]
+                    return domain.SessionClosedEvent(
+                        session_id=state.session.id,
+                        guild_id=guild_id,
+                        channel_id=channel_id,
+                        started_at=state.session.started_at,
+                        ended_at=occurred_at,
+                        ended_by_user_id=user_id,
+                    )
 
-            if state.participants:
-                return None
+        return self._leave_from_repository(guild_id, channel_id, user_id, occurred_at, key)
 
-            self.repo.CloseSession(state.session.id, occurred_at, user_id)
-            del self._sessions[key]
-            return domain.SessionClosedEvent(
-                session_id=state.session.id,
-                guild_id=guild_id,
-                channel_id=channel_id,
-                started_at=state.session.started_at,
-                ended_at=occurred_at,
-                ended_by_user_id=user_id,
-            )
+    def _leave_from_repository(
+        self,
+        guild_id: str,
+        channel_id: str,
+        user_id: str,
+        occurred_at: datetime,
+        key: str,
+    ) -> domain.SessionClosedEvent | None:
+        session = self.repo.FindActiveSession(guild_id, channel_id)
+        if session is None:
+            return None
+
+        participant = self.repo.FindActiveParticipant(session.id, user_id)
+        if participant is None:
+            return None
+
+        joined_at = participant.joined_at or occurred_at
+        duration_ms = int((occurred_at - joined_at).total_seconds() * 1000)
+        if duration_ms < 0:
+            duration_ms = 0
+        self.repo.CloseParticipant(participant.id, occurred_at, duration_ms)
+
+        if self.repo.ListActiveParticipants(session.id):
+            return None
+
+        self.repo.CloseSession(session.id, occurred_at, user_id)
+        with self._lock:
+            self._sessions.pop(key, None)
+        return domain.SessionClosedEvent(
+            session_id=session.id,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            started_at=session.started_at,
+            ended_at=occurred_at,
+            ended_by_user_id=user_id,
+        )
 
     def _settings_for_guild(self, guild_id: str) -> domain.GuildSettings:
         if self.repo is not None:

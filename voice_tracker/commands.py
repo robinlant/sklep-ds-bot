@@ -37,8 +37,8 @@ COMMAND_ACCESS_ALL_USER = "ALL_USER"
 
 AUDIT_COMMAND_NAME = "audit"
 BOT_SETTING_COMMAND_NAME = "bot-setting"
-SETTINGS_COMMAND_NAME = BOT_SETTING_COMMAND_NAME
-LEGACY_SETTINGS_COMMAND_NAME = "settings"
+SETTINGS_COMMAND_NAME = "settings"
+LEGACY_SETTINGS_COMMAND_NAME = BOT_SETTING_COMMAND_NAME
 TRACK_COMMAND_NAME = "track"
 TRACK_LIST_COMMAND_NAME = "track-list"
 JUMP_COMMAND_NAME = "jump"
@@ -50,6 +50,7 @@ USERINFO_COMMAND_NAME = "userinfo"
 
 VOICE_COMMAND_NAMES = {
     AUDIT_COMMAND_NAME,
+    SETTINGS_COMMAND_NAME,
     BOT_SETTING_COMMAND_NAME,
     TRACK_COMMAND_NAME,
     TRACK_LIST_COMMAND_NAME,
@@ -59,7 +60,6 @@ VOICE_COMMAND_NAMES = {
     UNMUTE_COMMAND_NAME,
     DASHBOARD_COMMAND_NAME,
     USERINFO_COMMAND_NAME,
-    LEGACY_SETTINGS_COMMAND_NAME,
 }
 INSPECT_HISTORY_ALL_COMMAND = "history.all"
 INSPECT_HISTORY_PICK_COMMAND = "history.pick"
@@ -68,6 +68,11 @@ INSPECT_ACTIVE_CHANNEL_COMMAND = "active.channel"
 MAX_CLOSED_HISTORY_ITEMS = 10
 OPTION_TYPE_ROLE = 8
 OPTION_TYPE_USER = 6
+TRACK_DEPRECATION_NOTICE = (
+    "Deprecated command: per-channel tracking has been removed. "
+    "Voice Tracker now always tracks all voice and stage channels. "
+    "This command is a no-op. Use /settings for operational configuration."
+)
 
 
 @dataclass(slots=True)
@@ -100,29 +105,38 @@ class CommandPolicy:
 
 
 COMMAND_POLICIES: dict[tuple[str, str], CommandPolicy] = {
-    (AUDIT_COMMAND_NAME, "channel"): CommandPolicy(AUDIT_COMMAND_NAME, "channel", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_audit_command"),
+    (AUDIT_COMMAND_NAME, ""): CommandPolicy(AUDIT_COMMAND_NAME, "", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_audit_command"),
+    (SETTINGS_COMMAND_NAME, "show"): CommandPolicy(SETTINGS_COMMAND_NAME, "show", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_settings_command"),
+    (SETTINGS_COMMAND_NAME, "mode"): CommandPolicy(SETTINGS_COMMAND_NAME, "mode", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_settings_command"),
+    (SETTINGS_COMMAND_NAME, "summary-set"): CommandPolicy(SETTINGS_COMMAND_NAME, "summary-set", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_settings_command"),
+    (SETTINGS_COMMAND_NAME, "summary-clear"): CommandPolicy(SETTINGS_COMMAND_NAME, "summary-clear", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_settings_command"),
     (BOT_SETTING_COMMAND_NAME, ""): CommandPolicy(BOT_SETTING_COMMAND_NAME, "", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_bot_setting_command"),
-    (LEGACY_SETTINGS_COMMAND_NAME, "show"): CommandPolicy(LEGACY_SETTINGS_COMMAND_NAME, "show", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_settings_command"),
-    (LEGACY_SETTINGS_COMMAND_NAME, "mode"): CommandPolicy(LEGACY_SETTINGS_COMMAND_NAME, "mode", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_settings_command"),
-    (LEGACY_SETTINGS_COMMAND_NAME, "summary-set"): CommandPolicy(LEGACY_SETTINGS_COMMAND_NAME, "summary-set", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_settings_command"),
-    (LEGACY_SETTINGS_COMMAND_NAME, "summary-clear"): CommandPolicy(LEGACY_SETTINGS_COMMAND_NAME, "summary-clear", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_settings_command"),
     (TRACK_COMMAND_NAME, "add"): CommandPolicy(TRACK_COMMAND_NAME, "add", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_track_command"),
     (TRACK_COMMAND_NAME, "remove"): CommandPolicy(TRACK_COMMAND_NAME, "remove", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_track_command"),
     (TRACK_COMMAND_NAME, "list"): CommandPolicy(TRACK_COMMAND_NAME, "list", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_track_command"),
     (TRACK_COMMAND_NAME, "clear"): CommandPolicy(TRACK_COMMAND_NAME, "clear", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_track_command"),
     (TRACK_LIST_COMMAND_NAME, "clear"): CommandPolicy(TRACK_LIST_COMMAND_NAME, "clear", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_track_list_command"),
-    (JUMP_COMMAND_NAME, "channel"): CommandPolicy(JUMP_COMMAND_NAME, "channel", COMMAND_ACCESS_ALL_USER, None, "handle_jump_command"),
-    (INSPECT_COMMAND_NAME, "channel"): CommandPolicy(INSPECT_COMMAND_NAME, "channel", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_inspect_command"),
+    (JUMP_COMMAND_NAME, ""): CommandPolicy(JUMP_COMMAND_NAME, "", COMMAND_ACCESS_ALL_USER, None, "handle_jump_command"),
+    (INSPECT_COMMAND_NAME, ""): CommandPolicy(INSPECT_COMMAND_NAME, "", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_inspect_command"),
     (INSPECT_COMMAND_NAME, INSPECT_ACTIVE_ALL_COMMAND): CommandPolicy(INSPECT_COMMAND_NAME, INSPECT_ACTIVE_ALL_COMMAND, COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_inspect_command"),
     (INSPECT_COMMAND_NAME, INSPECT_ACTIVE_CHANNEL_COMMAND): CommandPolicy(INSPECT_COMMAND_NAME, INSPECT_ACTIVE_CHANNEL_COMMAND, COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_inspect_command"),
     (INSPECT_COMMAND_NAME, INSPECT_HISTORY_ALL_COMMAND): CommandPolicy(INSPECT_COMMAND_NAME, INSPECT_HISTORY_ALL_COMMAND, COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_inspect_command"),
     (INSPECT_COMMAND_NAME, INSPECT_HISTORY_PICK_COMMAND): CommandPolicy(INSPECT_COMMAND_NAME, INSPECT_HISTORY_PICK_COMMAND, COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_inspect_command"),
-    (AUTOROLE_COMMAND_NAME, "role"): CommandPolicy(AUTOROLE_COMMAND_NAME, "role", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_autorole_command"),
+    (AUTOROLE_COMMAND_NAME, ""): CommandPolicy(AUTOROLE_COMMAND_NAME, "", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_autorole_command"),
     (UNMUTE_COMMAND_NAME, "add"): CommandPolicy(UNMUTE_COMMAND_NAME, "add", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_unmute_command"),
     (UNMUTE_COMMAND_NAME, "remove"): CommandPolicy(UNMUTE_COMMAND_NAME, "remove", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_unmute_command"),
     (UNMUTE_COMMAND_NAME, "list"): CommandPolicy(UNMUTE_COMMAND_NAME, "list", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_unmute_command"),
     (DASHBOARD_COMMAND_NAME, ""): CommandPolicy(DASHBOARD_COMMAND_NAME, "", COMMAND_ACCESS_ALL_USER, None, "handle_dashboard_command"),
-    (USERINFO_COMMAND_NAME, "user"): CommandPolicy(USERINFO_COMMAND_NAME, "user", COMMAND_ACCESS_ALL_USER, None, "handle_userinfo_command"),
+    (USERINFO_COMMAND_NAME, ""): CommandPolicy(USERINFO_COMMAND_NAME, "", COMMAND_ACCESS_ALL_USER, None, "handle_userinfo_command"),
+}
+
+COMMAND_ROUTE_ALIASES: dict[tuple[str, str], tuple[str, str]] = {
+    (SETTINGS_COMMAND_NAME, ""): (SETTINGS_COMMAND_NAME, "show"),
+    (AUDIT_COMMAND_NAME, "channel"): (AUDIT_COMMAND_NAME, ""),
+    (JUMP_COMMAND_NAME, "channel"): (JUMP_COMMAND_NAME, ""),
+    (INSPECT_COMMAND_NAME, "channel"): (INSPECT_COMMAND_NAME, ""),
+    (AUTOROLE_COMMAND_NAME, "role"): (AUTOROLE_COMMAND_NAME, ""),
+    (USERINFO_COMMAND_NAME, "user"): (USERINFO_COMMAND_NAME, ""),
 }
 
 
@@ -514,29 +528,13 @@ class Service:
         command: str,
         options: list[ApplicationCommandInteractionDataOption],
     ) -> str:
-        if root == AUDIT_COMMAND_NAME:
-            return self.handle_audit_command(ctx, interaction, command, options)
-        if root == BOT_SETTING_COMMAND_NAME:
-            return self.handle_bot_setting_command(ctx, interaction, command, options)
-        if root == LEGACY_SETTINGS_COMMAND_NAME:
-            return self.handle_settings_command(ctx, interaction, command, options)
-        if root == TRACK_COMMAND_NAME:
-            return self.handle_track_command(ctx, interaction, command, options)
-        if root == TRACK_LIST_COMMAND_NAME:
-            return self.handle_track_list_command(ctx, interaction, command, options)
-        if root == JUMP_COMMAND_NAME:
-            return self.handle_jump_command(ctx, interaction, command, options)
-        if root == INSPECT_COMMAND_NAME:
-            return self.handle_inspect_command(ctx, interaction, command, options)
-        if root == AUTOROLE_COMMAND_NAME:
-            return self.handle_autorole_command(ctx, interaction, command, options)
-        if root == UNMUTE_COMMAND_NAME:
-            return self.handle_unmute_command(ctx, interaction, command, options)
-        if root == DASHBOARD_COMMAND_NAME:
-            return self.handle_dashboard_command(ctx, interaction, command, options)
-        if root == USERINFO_COMMAND_NAME:
-            return self.handle_userinfo_command(ctx, interaction, command, options)
-        raise ValueError("unknown voice command")
+        policy = command_policy(root, command)
+        if policy is None:
+            raise ValueError("unknown voice command")
+        handler = getattr(self, policy.handler_name, None)
+        if not callable(handler):
+            raise ValueError("unknown voice command")
+        return handler(ctx, interaction, policy.command, options)
 
     def handle_audit_command(
         self,
@@ -547,7 +545,7 @@ class Service:
     ) -> str:
         channel_id = resolve_command_channel(interaction, options, "channel", CHANNEL_TYPE_GUILD_TEXT)
         settings = self.set_audit_channel(ctx, interaction.guild_id, channel_id)
-        return self.describe_settings(settings)
+        return f"Deprecated alias: use /settings summary-set.\n{self.describe_settings(settings)}"
 
     def handle_bot_setting_command(
         self,
@@ -556,7 +554,7 @@ class Service:
         command: str,
         options: list[ApplicationCommandInteractionDataOption],
     ) -> str:
-        return self.describe_bot_settings(ctx, interaction.guild_id)
+        return f"Deprecated alias: use /settings show.\n{self.describe_bot_settings(ctx, interaction.guild_id)}"
 
     def handle_settings_command(
         self,
@@ -565,14 +563,20 @@ class Service:
         command: str,
         options: list[ApplicationCommandInteractionDataOption],
     ) -> str:
-        if command == "show":
+        if command in {"", "show"}:
             settings = self.get_guild_settings(ctx, interaction.guild_id)
             return self.describe_settings(settings)
         if command == "mode":
-            mode = option_string(options, "mode")
-            if not mode:
+            requested_mode = option_string(options, "mode")
+            if not requested_mode:
                 raise ValueError("mode value is required")
-            settings = self.set_tracking_mode(ctx, interaction.guild_id, mode)
+            settings = self.enforce_track_all(ctx, interaction.guild_id)
+            if domain.normalize_tracking_mode(requested_mode) != domain.GUILD_TRACKING_MODE_ALL:
+                return (
+                    "Tracking mode is fixed to 'all'. "
+                    "Per-channel and disabled tracking modes are no longer supported.\n"
+                    f"{self.describe_settings(settings)}"
+                )
             return self.describe_settings(settings)
         if command == "summary-set":
             channel_id = resolve_command_channel(interaction, options, "channel", CHANNEL_TYPE_GUILD_TEXT)
@@ -590,25 +594,23 @@ class Service:
         command: str,
         options: list[ApplicationCommandInteractionDataOption],
     ) -> str:
-        if command == "add":
-            channel_id = resolve_command_channel(
-                interaction, options, "channel", CHANNEL_TYPE_GUILD_VOICE, CHANNEL_TYPE_GUILD_STAGE_VOICE
-            )
-            settings = self.add_tracked_channel(ctx, interaction.guild_id, channel_id)
-            return self.describe_settings(settings)
-        if command == "remove":
-            channel_id = resolve_command_channel(
-                interaction, options, "channel", CHANNEL_TYPE_GUILD_VOICE, CHANNEL_TYPE_GUILD_STAGE_VOICE
-            )
-            settings = self.remove_tracked_channel(ctx, interaction.guild_id, channel_id)
-            return self.describe_settings(settings)
-        if command == "list":
-            settings = self.list_tracked_channels(ctx, interaction.guild_id)
-            return self.describe_settings(settings)
-        if command == "clear":
-            settings = self.clear_tracked_channels(ctx, interaction.guild_id)
-            return self.describe_settings(settings)
-        raise ValueError("unknown track command")
+        if command not in {"add", "remove", "list", "clear"}:
+            raise ValueError("unknown track command")
+        settings = self.enforce_track_all(ctx, interaction.guild_id)
+        return f"{TRACK_DEPRECATION_NOTICE}\n{self.describe_settings(settings)}"
+
+    def enforce_track_all(self, ctx: Any, guild_id: str) -> domain.GuildSettings:
+        settings = self.get_guild_settings(ctx, guild_id)
+        needs_save = False
+        if domain.normalize_tracking_mode(settings.tracking_mode) != domain.GUILD_TRACKING_MODE_ALL:
+            settings.tracking_mode = domain.GUILD_TRACKING_MODE_ALL
+            needs_save = True
+        if len(settings.tracked_channel_ids) > 0:
+            settings.tracked_channel_ids = []
+            needs_save = True
+        if needs_save:
+            self._save(ctx, settings)
+        return settings
 
     def handle_track_list_command(
         self,
@@ -617,10 +619,10 @@ class Service:
         command: str,
         options: list[ApplicationCommandInteractionDataOption],
     ) -> str:
-        if command == "clear":
-            settings = self.clear_tracked_channels(ctx, interaction.guild_id)
-            return self.describe_settings(settings)
-        raise ValueError("unknown track-list command")
+        if command != "clear":
+            raise ValueError("unknown track-list command")
+        settings = self.enforce_track_all(ctx, interaction.guild_id)
+        return f"{TRACK_DEPRECATION_NOTICE}\n{self.describe_settings(settings)}"
 
     def handle_inspect_command(
         self,
@@ -629,18 +631,13 @@ class Service:
         command: str,
         options: list[ApplicationCommandInteractionDataOption],
     ) -> str:
-        if command == "channel":
+        if command in {"", "channel", INSPECT_ACTIVE_CHANNEL_COMMAND}:
             channel_id = resolve_command_channel(
                 interaction, options, "channel", CHANNEL_TYPE_GUILD_VOICE, CHANNEL_TYPE_GUILD_STAGE_VOICE
             )
             return self.describe_active_session(ctx, interaction.guild_id, channel_id)
         if command == INSPECT_ACTIVE_ALL_COMMAND:
             return self.describe_active_sessions(ctx, interaction.guild_id)
-        if command == INSPECT_ACTIVE_CHANNEL_COMMAND:
-            channel_id = resolve_command_channel(
-                interaction, options, "channel", CHANNEL_TYPE_GUILD_VOICE, CHANNEL_TYPE_GUILD_STAGE_VOICE
-            )
-            return self.describe_active_session(ctx, interaction.guild_id, channel_id)
         if command == INSPECT_HISTORY_ALL_COMMAND:
             channel_id = resolve_command_channel(
                 interaction, options, "channel", CHANNEL_TYPE_GUILD_VOICE, CHANNEL_TYPE_GUILD_STAGE_VOICE
@@ -745,6 +742,9 @@ class Service:
             lines.append(f"Roles: {_truncate_list(profile.roles, 10)}")
         return "\n".join(lines)
 
+    def get_member_profile(self, ctx: Any, guild_id: str, user_id: str) -> MemberProfileView | None:
+        return _load_member_profile(self.repo, ctx, guild_id, user_id)
+
 
 def build_dashboard_page(model: Any) -> dict[str, Any]:
     rows = list(getattr(model, "rows", []) or [])
@@ -798,6 +798,7 @@ BuildUserInfoPage = build_userinfo_page
 def voice_application_commands() -> list[ApplicationCommand]:
     return [
         audit_application_command(),
+        settings_application_command(),
         bot_setting_application_command(),
         track_application_command(),
         track_list_application_command(),
@@ -811,7 +812,7 @@ def voice_application_commands() -> list[ApplicationCommand]:
 
 
 def voice_application_command() -> ApplicationCommand:
-    return bot_setting_application_command()
+    return settings_application_command()
 
 
 def audit_application_command() -> CommandDefinition:
@@ -836,21 +837,19 @@ def bot_setting_application_command() -> CommandDefinition:
 def track_application_command() -> CommandDefinition:
     return CommandDefinition(
         name=TRACK_COMMAND_NAME,
-        description="Manage tracked voice channels",
+        description="Deprecated no-op (tracking is always all voice/stage channels)",
         options=[
             ApplicationCommandOption(
                 type=OPTION_TYPE_SUB_COMMAND,
                 name="add",
-                description="Add a voice channel to the tracked list",
-                options=[_voice_channel_option("channel", "Voice channel to track")],
+                description="Deprecated no-op",
             ),
             ApplicationCommandOption(
                 type=OPTION_TYPE_SUB_COMMAND,
                 name="remove",
-                description="Remove a voice channel from the tracked list",
-                options=[_voice_channel_option("channel", "Voice channel to stop tracking")],
+                description="Deprecated no-op",
             ),
-            ApplicationCommandOption(type=OPTION_TYPE_SUB_COMMAND, name="list", description="List tracked voice channels"),
+            ApplicationCommandOption(type=OPTION_TYPE_SUB_COMMAND, name="list", description="Deprecated no-op"),
         ],
         default_member_permissions=PERMISSION_ADMINISTRATOR,
     )
@@ -859,9 +858,9 @@ def track_application_command() -> CommandDefinition:
 def track_list_application_command() -> CommandDefinition:
     return CommandDefinition(
         name=TRACK_LIST_COMMAND_NAME,
-        description="Manage tracked voice channel lists",
+        description="Deprecated no-op (tracking is always all voice/stage channels)",
         options=[
-            ApplicationCommandOption(type=OPTION_TYPE_SUB_COMMAND, name="clear", description="Clear tracked voice channels"),
+            ApplicationCommandOption(type=OPTION_TYPE_SUB_COMMAND, name="clear", description="Deprecated no-op"),
         ],
         default_member_permissions=PERMISSION_ADMINISTRATOR,
     )
@@ -935,14 +934,14 @@ def userinfo_application_command() -> CommandDefinition:
 
 def settings_application_command() -> CommandDefinition:
     return CommandDefinition(
-        name=LEGACY_SETTINGS_COMMAND_NAME,
+        name=SETTINGS_COMMAND_NAME,
         description="Show or change voice tracker settings",
         options=[
             ApplicationCommandOption(type=OPTION_TYPE_SUB_COMMAND, name="show", description="Show current settings"),
             ApplicationCommandOption(
                 type=OPTION_TYPE_SUB_COMMAND,
                 name="mode",
-                description="Set which voice channels are tracked",
+                description="Tracking mode (fixed to all)",
                 options=[_tracking_mode_option()],
             ),
             ApplicationCommandOption(
@@ -959,6 +958,33 @@ def settings_application_command() -> CommandDefinition:
         ],
         default_member_permissions=PERMISSION_ADMINISTRATOR,
     )
+
+
+def registered_voice_command_routes() -> set[tuple[str, str]]:
+    routes: set[tuple[str, str]] = set()
+    for command in voice_application_commands():
+        root = (command.name or "").strip()
+        if root == "":
+            continue
+        routes.update(_registered_routes_for_command(root, command.options))
+    return routes
+
+
+def _registered_routes_for_command(root: str, options: list[ApplicationCommandOption]) -> set[tuple[str, str]]:
+    if len(options) == 0:
+        return {(root, "")}
+    routes: set[tuple[str, str]] = set()
+    for option in options:
+        if _is_subcommand_group(option):
+            for nested in list(option.options or []):
+                if _is_subcommand(nested):
+                    routes.add((root, f"{option.name}.{nested.name}"))
+            continue
+        if _is_subcommand(option):
+            routes.add((root, option.name))
+    if len(routes) > 0:
+        return routes
+    return {(root, "")}
 
 
 def _voice_channel_option(name: str, description: str) -> ApplicationCommandOption:
@@ -993,12 +1019,10 @@ def _tracking_mode_option() -> ApplicationCommandOption:
     return ApplicationCommandOption(
         type=OPTION_TYPE_STRING,
         name="mode",
-        description="all, none, or specific",
+        description="Only 'all' is supported",
         required=True,
         choices=[
             ApplicationCommandOptionChoice(name=domain.GUILD_TRACKING_MODE_ALL, value=domain.GUILD_TRACKING_MODE_ALL),
-            ApplicationCommandOptionChoice(name=domain.GUILD_TRACKING_MODE_NONE, value=domain.GUILD_TRACKING_MODE_NONE),
-            ApplicationCommandOptionChoice(name=domain.GUILD_TRACKING_MODE_SPECIFIC, value=domain.GUILD_TRACKING_MODE_SPECIFIC),
         ],
     )
 
@@ -1058,19 +1082,19 @@ def can_use_voice_command(
     return has_administrator_permissions(interaction)
 
 
+def canonical_command_route(root: str, command: str) -> tuple[str, str]:
+    canonical = ((root or "").strip(), (command or "").strip())
+    visited: set[tuple[str, str]] = set()
+    while canonical in COMMAND_ROUTE_ALIASES:
+        if canonical in visited:
+            break
+        visited.add(canonical)
+        canonical = COMMAND_ROUTE_ALIASES[canonical]
+    return canonical
+
+
 def command_policy(root: str, command: str) -> CommandPolicy | None:
-    root = (root or "").strip()
-    command = (command or "").strip()
-    policy = COMMAND_POLICIES.get((root, command))
-    if policy is not None:
-        return policy
-    policy = COMMAND_POLICIES.get((root, ""))
-    if policy is not None:
-        return policy
-    root_policies = [item for (policy_root, _), item in COMMAND_POLICIES.items() if policy_root == root]
-    if len(root_policies) == 1:
-        return root_policies[0]
-    return None
+    return COMMAND_POLICIES.get(canonical_command_route(root, command))
 
 
 def option_string(options: list[ApplicationCommandInteractionDataOption], name: str) -> str:
@@ -1081,15 +1105,35 @@ def option_string(options: list[ApplicationCommandInteractionDataOption], name: 
 
 
 def option_channel_id(options: list[ApplicationCommandInteractionDataOption], name: str) -> str:
-    return option_string(options, name)
+    return option_snowflake_id(options, name)
 
 
 def option_role_id(options: list[ApplicationCommandInteractionDataOption], name: str) -> str:
-    return option_string(options, name)
+    return option_snowflake_id(options, name)
 
 
 def option_user_id(options: list[ApplicationCommandInteractionDataOption], name: str) -> str:
-    return option_string(options, name)
+    return option_snowflake_id(options, name)
+
+
+def option_snowflake_id(options: list[ApplicationCommandInteractionDataOption], name: str) -> str:
+    for option in options:
+        if option.name != name:
+            continue
+        return normalize_snowflake_id(option.value)
+    return ""
+
+
+def normalize_snowflake_id(value: Any) -> str:
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        if value < 0:
+            return ""
+        return str(value)
+    if isinstance(value, str):
+        return value.strip()
+    return ""
 
 
 def option_int_in_range(

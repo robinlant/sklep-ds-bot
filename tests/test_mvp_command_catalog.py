@@ -16,6 +16,7 @@ from voice_tracker.discord_models import (
 
 TARGET_TOP_LEVEL_COMMAND_NAMES = {
     "audit",
+    "settings",
     "bot-setting",
     "track",
     "track-list",
@@ -29,10 +30,11 @@ TARGET_TOP_LEVEL_COMMAND_NAMES = {
 
 ADMIN_ONLY_TOP_LEVEL_COMMANDS = (
     ("audit", ""),
+    ("settings", "show"),
     ("bot-setting", ""),
     ("track", "add"),
     ("track-list", "clear"),
-    ("inspect", "channel"),
+    ("inspect", ""),
     ("autorole", ""),
 )
 
@@ -55,7 +57,6 @@ def test_mvp_command_catalog_matches_target_top_level_names() -> None:
 
     assert set(commands) == TARGET_TOP_LEVEL_COMMAND_NAMES
     assert "shuffle" not in commands
-    assert "settings" not in commands
 
     for root, _ in ADMIN_ONLY_TOP_LEVEL_COMMANDS:
         assert str(commands[root].get("default_member_permissions")) == str(PERMISSION_ADMINISTRATOR)
