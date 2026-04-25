@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import services.tracker as tracker_main
 from voice_tracker import domain
 from voice_tracker.tracker import Defaults, Service
 
@@ -190,3 +191,110 @@ async def test_start_republishes_pending_closed_session() -> None:
     await svc.Start()
     assert repo.sessions[session.id].closed_event_published_at is not None
     assert len(publisher.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_leave_falls_back_to_repo_when_state_not_hydrated() -> None:
+    repo = FakeRepo()
+    publisher = FakePublisher()
+    svc = Service(repo, publisher, Defaults(tracking_mode=domain.GUILD_TRACKING_MODE_ALL))
+    start = datetime(2026, 4, 5, 18, 0, 0, tzinfo=UTC)
+    leave = start + timedelta(minutes=7)
+    session = domain.Session(id="s1", guild_id="g1", channel_id="c1", status=domain.SESSION_STATUS_ACTIVE, started_at=start)
+    repo.sessions[session.id] = session
+    repo.parts["p1"] = domain.ParticipantInterval(
+        id="p1",
+        session_id=session.id,
+        guild_id="g1",
+        channel_id="c1",
+        user_id="u1",
+        user_name="alice",
+        joined_at=start,
+        active=True,
+    )
+
+    event = domain.VoiceStateEvent(guild_id="g1", previous_channel_id="c1", user_id="u1", occurred_at=leave)
+    await svc.HandleVoiceEvent(event)
+    await svc.HandleVoiceEvent(replace(event, occurred_at=leave + timedelta(seconds=1)))
+
+    assert repo.sessions[session.id].status == domain.SESSION_STATUS_CLOSED
+    assert repo.sessions[session.id].closed_event_published_at is not None
+    assert repo.parts["p1"].active is False
+    assert len(repo.closed_events) == 1
+    assert len(repo.closed_parts) == 1
+    assert len(publisher.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_main_subscribes_before_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class FakeConfig:
+        mongo_uri = "mongodb://unused"
+        mongo_db = "voice_tracker"
+        nats_url = "nats://unused"
+        event_signing_secret = "test-secret"
+        tracking_mode = domain.GUILD_TRACKING_MODE_ALL
+        tracked_channel_ids: list[str] = []
+
+    class FakeMongoClient:
+        def __init__(self, _uri: str) -> None:
+            pass
+
+        def __getitem__(self, _name: str) -> object:
+            return object()
+
+        def close(self) -> None:
+            calls.append("mongo_close")
+
+    class FakeRepoMain:
+        def __init__(self, _db: object) -> None:
+            pass
+
+        def ensure_indexes(self, _ctx: object) -> None:
+            calls.append("ensure_indexes")
+
+    class FakeNats:
+        async def connect(self, _url: str) -> None:
+            calls.append("nats_connect")
+
+    class FakeBus:
+        def __init__(self, _nats: FakeNats, _secret: str, _issuer: str) -> None:
+            pass
+
+        async def subscribe(self, _ctx: object, _subject: str, _repo: object, _handler: object) -> None:
+            calls.append("subscribe")
+
+        async def aclose(self) -> None:
+            calls.append("bus_close")
+
+    class FakeService:
+        def __init__(self, _repo: object, _bus: object, _defaults: object) -> None:
+            pass
+
+        async def Start(self) -> None:
+            calls.append("start")
+
+        async def HandleVoiceEvent(self, _event: object) -> None:
+            calls.append("handle")
+
+    class ImmediateEvent:
+        def set(self) -> None:
+            calls.append("event_set")
+
+        async def wait(self) -> None:
+            calls.append("wait")
+
+    monkeypatch.setattr(tracker_main, "configure_logging", lambda _name: None)
+    monkeypatch.setattr(tracker_main, "load_config", lambda: FakeConfig())
+    monkeypatch.setattr(tracker_main, "require_event_signing_secret", lambda _secret: None)
+    monkeypatch.setattr(tracker_main, "MongoClient", FakeMongoClient)
+    monkeypatch.setattr(tracker_main, "Repository", FakeRepoMain)
+    monkeypatch.setattr(tracker_main, "NATS", FakeNats)
+    monkeypatch.setattr(tracker_main, "Bus", FakeBus)
+    monkeypatch.setattr(tracker_main, "Service", FakeService)
+    monkeypatch.setattr(tracker_main.asyncio, "Event", ImmediateEvent)
+
+    await tracker_main.main()
+
+    assert calls.index("subscribe") < calls.index("start")

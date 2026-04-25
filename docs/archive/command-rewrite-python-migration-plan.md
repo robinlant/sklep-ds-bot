@@ -15,7 +15,7 @@ changes unless the user explicitly asks for that.
   `f2a9ca5b8f5c656edbeaddc45aadabd9164ead14`.
 - Current branch: `codex/rewrite-python-services`, based on a Python rewrite commit
   `af3288b5cbd861b70cea5fb9eb5e6450778820c1`.
-- Existing research: `docs/discord-command-ux-research.md`.
+- Existing research: `docs/archive/discord-command-ux-research.md`.
 - Existing migration notes: `CODEX_WORKLOG.md`.
 
 ## Executive Summary

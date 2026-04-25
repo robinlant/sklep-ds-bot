@@ -8,7 +8,7 @@ from typing import Any, Iterable
 from voice_tracker import appcommands, commands as command_module
 
 
-PLAN_PATH = Path(__file__).resolve().parents[1] / "docs" / "command-rewrite-python-migration-plan.md"
+PLAN_PATH = Path(__file__).resolve().parents[1] / "docs" / "archive" / "command-rewrite-python-migration-plan.md"
 
 
 def _require_callable(*names: str):

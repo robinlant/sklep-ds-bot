@@ -67,6 +67,7 @@ def test_default_commands_match_mvp_catalog() -> None:
 
     assert list(commands) == [
         "audit",
+        "settings",
         "bot-setting",
         "track",
         "track-list",
@@ -77,14 +78,13 @@ def test_default_commands_match_mvp_catalog() -> None:
         "dashboard",
         "userinfo",
     ]
-    assert "settings" not in commands
     assert "shuffle" not in commands
 
 
 def test_mvp_command_payloads_have_expected_shapes_and_permissions() -> None:
     commands = {command["name"]: command for command in appcommands.default_commands()}
 
-    admin_commands = {"audit", "bot-setting", "track", "track-list", "inspect", "autorole"}
+    admin_commands = {"audit", "settings", "bot-setting", "track", "track-list", "inspect", "autorole"}
     all_user_commands = {"jump", "dashboard", "userinfo"}
     for name in admin_commands:
         assert str(commands[name].get("default_member_permissions")) == str(PERMISSION_ADMINISTRATOR)
@@ -92,9 +92,12 @@ def test_mvp_command_payloads_have_expected_shapes_and_permissions() -> None:
         assert "default_member_permissions" not in commands[name]
 
     assert _channel_types(_option_by_name(commands["audit"]["options"], "channel")) == [0]
+    assert _option_names(commands["settings"]["options"]) == ["show", "mode", "summary-set", "summary-clear"]
+    mode_option = _nested_option_by_name(commands["settings"]["options"], "mode", "mode")
+    assert _choice_names(mode_option) == ["all"]
     assert _option_names(commands["track"]["options"]) == ["add", "remove", "list"]
-    assert _channel_types(_nested_option_by_name(commands["track"]["options"], "add", "channel")) == [2, 13]
-    assert _channel_types(_nested_option_by_name(commands["track"]["options"], "remove", "channel")) == [2, 13]
+    assert _option_by_name(commands["track"]["options"], "add").get("options", []) == []
+    assert _option_by_name(commands["track"]["options"], "remove").get("options", []) == []
     assert _option_names(commands["track-list"]["options"]) == ["clear"]
     assert _channel_types(_option_by_name(commands["jump"]["options"], "channel")) == [2, 13]
     assert _channel_types(_option_by_name(commands["inspect"]["options"], "channel")) == [2, 13]

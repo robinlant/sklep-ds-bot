@@ -13,6 +13,54 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.allow_failure || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: fast
+            python-version: "3.11"
+          - lane: fast
+            python-version: "3.12"
+          - lane: forward-canary
+            python-version: "3.14"
+            allow_failure: true
+            allow_prereleases: true
+          - lane: deprecation-strict
+            python-version: "3.12"
+            allow_failure: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: ${{ matrix.allow_prereleases || false }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[test]"
+
+      - name: Compile
+        if: matrix.lane == 'fast' || matrix.lane == 'forward-canary'
+        run: python -m compileall voice_tracker services tests
+
+      - name: Run tests
+        if: matrix.lane == 'fast' || matrix.lane == 'forward-canary'
+        run: pytest
+
+      - name: Run deprecation-strict tests
+        if: matrix.lane == 'deprecation-strict'
+        run: pytest -W error::DeprecationWarning
+
+  required-test:
+    name: test
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,8 +77,5 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -e ".[test]"
 
-      - name: Compile
-        run: python -m compileall voice_tracker services tests
-
-      - name: Run tests
+      - name: Run required tests
         run: pytest

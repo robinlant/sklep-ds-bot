@@ -2,13 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from datetime import UTC, datetime
 
-import discord
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message="'audioop' is deprecated and slated for removal in Python 3.13",
+        category=DeprecationWarning,
+    )
+    import discord
 from pymongo import MongoClient
 
 from voice_tracker.appcommands import commands as application_commands
-from voice_tracker.commands import Service as VoiceService, VOICE_COMMAND_NAMES, can_use_voice_command, parse_voice_route
+from voice_tracker.commands import (
+    Service as VoiceService,
+    VOICE_COMMAND_NAMES,
+    can_use_voice_command,
+    format_duration,
+    parse_voice_route,
+)
 from voice_tracker.discord_models import (
     ApplicationCommandInteractionData,
     ApplicationCommandInteractionDataOption,
@@ -28,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 TARGET_COMMAND_NAMES = {
     "audit",
+    "settings",
     "bot-setting",
     "track",
     "track-list",
@@ -170,6 +184,7 @@ async def _dispatch_command(
     options: list[ApplicationCommandInteractionDataOption],
     bot_admin_user_ids: list[str],
 ) -> str | discord.Embed:
+    options = _normalize_snowflake_options(options)
     if root == "audit":
         if not _is_admin_only(model):
             return "Insufficient permissions."
@@ -195,20 +210,37 @@ async def _dispatch_command(
     if root == "dashboard":
         return await _dispatch_service_method(service, "handle_dashboard_command", model, command, options)
     if root == "userinfo":
-        return await _dispatch_userinfo_command(client, interaction, options)
+        return await _dispatch_userinfo_command(client, service, model, interaction, options)
     if root == "track":
         if command in {"add", "remove", "list"}:
             if not _is_admin_only(model):
                 return "Insufficient permissions."
             return _dispatch_track_command(service, model, command, options)
         if command == "clear":
-            return _dispatch_legacy_voice_command(service, model, root, command, options, bot_admin_user_ids)
-    if root == "inspect" and command == "channel":
+            return _dispatch_legacy_voice_command(
+                service,
+                model,
+                root,
+                command,
+                options,
+                bot_admin_user_ids,
+                remember_fallback=False,
+            )
+    if root == "inspect" and (command == "channel" or (command == "" and _option_string(options, "channel") != "")):
         if not _is_admin_only(model):
             return "Insufficient permissions."
         return _dispatch_inspect_channel_command(service, model, options)
     if root in {"settings", "inspect"} or (root == "track" and command == "clear"):
-        return _dispatch_legacy_voice_command(service, model, root, command, options, bot_admin_user_ids)
+        remember_fallback = root == "settings" and command == "summary-clear"
+        return _dispatch_legacy_voice_command(
+            service,
+            model,
+            root,
+            command,
+            options,
+            bot_admin_user_ids,
+            remember_fallback=remember_fallback,
+        )
     logger.warning("unknown command route %s", _command_context(interaction, root, command, options))
     return "Unknown command."
 
@@ -220,10 +252,11 @@ def _dispatch_legacy_voice_command(
     command: str,
     options: list[ApplicationCommandInteractionDataOption],
     bot_admin_user_ids: list[str],
+    remember_fallback: bool = False,
 ) -> str:
     if not can_use_voice_command(model, bot_admin_user_ids, root, command):
         return "Insufficient permissions."
-    if model.channel_id:
+    if remember_fallback and model.channel_id:
         service.remember_fallback_summary_channel(None, model.guild_id, model.channel_id)
     return service.handle_voice_command(None, model, root, command, options)
 
@@ -262,7 +295,7 @@ def _dispatch_track_list_command(
 ) -> str:
     if command != "clear":
         return "Unknown track-list command."
-    return service.handle_track_command(None, model, "clear", options)
+    return service.handle_track_list_command(None, model, "clear", options)
 
 
 def _dispatch_inspect_channel_command(
@@ -357,6 +390,8 @@ async def _dispatch_jump_command(
 
 async def _dispatch_userinfo_command(
     client: discord.Client,
+    service: VoiceService,
+    model: InteractionCreate,
     interaction: discord.Interaction,
     options: list[ApplicationCommandInteractionDataOption],
 ) -> discord.Embed:
@@ -370,10 +405,10 @@ async def _dispatch_userinfo_command(
         raise ValueError("user is required")
     member = await _resolve_member_by_id(guild, user_id)
     fetched_user = await _fetch_user_by_id(client, user_id)
-    display_name = _userinfo_display_name(member, fetched_user, user_id)
-    username = _userinfo_username(member, fetched_user, user_id)
-    nickname = _userinfo_nickname(member)
+    display_name = _sanitize_public_text(_userinfo_display_name(member, fetched_user, user_id)) or user_id
+    username = _sanitize_public_text(_userinfo_username(member, fetched_user, user_id)) or user_id
     status_label = _userinfo_status(member)
+    total_voice_time = _userinfo_total_voice_time(service, model.guild_id, user_id)
     joined_at = _format_discord_datetime(getattr(member, "joined_at", None))
     created_at = _format_discord_datetime(_userinfo_created_at(member, fetched_user))
     avatar_url = _userinfo_avatar_url(member, fetched_user)
@@ -381,17 +416,11 @@ async def _dispatch_userinfo_command(
     lines = [
         f"User ID: `{user_id}`",
         f"Username: {username}",
-        f"Nickname: {nickname}",
         f"Status: {status_label}",
+        f"Total voice time: {total_voice_time}",
         f"Joined at: {joined_at}",
         f"Registered at: {created_at}",
     ]
-    if avatar_url:
-        lines.append(f"Avatar: [open]({avatar_url})")
-    if banner_url:
-        lines.append(f"Banner: [open]({banner_url})")
-    else:
-        lines.append("Banner: not set")
     embed = discord.Embed(title=f"Information about {display_name}", description="\n".join(lines), color=0x5865F2)
     if avatar_url:
         embed.set_thumbnail(url=avatar_url)
@@ -417,10 +446,40 @@ async def _dispatch_service_method(
     return "Command unavailable."
 
 
+def _normalize_snowflake_options(
+    options: list[ApplicationCommandInteractionDataOption],
+) -> list[ApplicationCommandInteractionDataOption]:
+    normalized: list[ApplicationCommandInteractionDataOption] = []
+    for option in options:
+        value = option.value
+        if option.name in {"channel", "user", "role"} and isinstance(value, int) and not isinstance(value, bool):
+            value = str(value)
+        normalized.append(
+            ApplicationCommandInteractionDataOption(
+                name=option.name,
+                value=value,
+                type=option.type,
+                options=_normalize_snowflake_options(option.options),
+            )
+        )
+    return normalized
+
+
+def _userinfo_total_voice_time(service: VoiceService, guild_id: str, user_id: str) -> str:
+    profile = service.get_member_profile(None, guild_id, user_id)
+    if profile is None:
+        return "0s"
+    return format_duration(profile.total_for)
+
+
 def _option_string(options: list[ApplicationCommandInteractionDataOption], name: str) -> str:
     for option in options:
-        if option.name == name and isinstance(option.value, str):
+        if option.name != name:
+            continue
+        if isinstance(option.value, str):
             return option.value.strip()
+        if isinstance(option.value, int) and not isinstance(option.value, bool):
+            return str(option.value)
     return ""
 
 
@@ -636,15 +695,6 @@ def _userinfo_username(member: discord.Member | None, user: discord.User | None,
     return username
 
 
-def _userinfo_nickname(member: discord.Member | None) -> str:
-    if member is None:
-        return "not set"
-    nickname = str(getattr(member, "nick", "") or "").strip()
-    if nickname == "":
-        return "not set"
-    return nickname
-
-
 def _userinfo_status(member: discord.Member | None) -> str:
     if member is None:
         return "Unknown"
@@ -694,6 +744,29 @@ def _format_discord_datetime(value: datetime | None) -> str:
         value = value.replace(tzinfo=UTC)
     unix_ts = int(value.timestamp())
     return f"<t:{unix_ts}:F> (<t:{unix_ts}:R>)"
+
+
+def _sanitize_public_text(value: str) -> str:
+    text = str(value or "")
+    for token in ("@everyone", "@here"):
+        text = text.replace(token, "")
+    text = _strip_discord_mentions(text)
+    text = " ".join(text.split())
+    return text.strip()
+
+
+def _strip_discord_mentions(text: str) -> str:
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        if text[index] == "<":
+            end = text.find(">", index + 1)
+            if end != -1 and text[index + 1 : end + 1].startswith("@"):
+                index = end + 1
+                continue
+        out.append(text[index])
+        index += 1
+    return "".join(out)
 
 
 def _public_command_payloads() -> list[dict[str, object]]:

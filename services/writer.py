@@ -14,6 +14,54 @@ from voice_tracker.summary import Service
 
 logger = logging.getLogger(__name__)
 
+STARTUP_BACKOFF_INITIAL_SECONDS = 1.0
+STARTUP_BACKOFF_MAX_SECONDS = 30.0
+
+
+def _startup_backoff_seconds(attempt: int) -> float:
+    return min(STARTUP_BACKOFF_INITIAL_SECONDS * (2 ** max(attempt - 1, 0)), STARTUP_BACKOFF_MAX_SECONDS)
+
+
+async def _start_with_retry(cfg, repo: Repository) -> tuple[Bus, Service]:
+    attempt = 0
+    while True:
+        attempt += 1
+        nats = NATS()
+        bus = Bus(nats, cfg.event_signing_secret, "writer")
+        service = Service(repo, bus)
+
+        async def _handle_session_closed(payload: bytes) -> None:
+            try:
+                await service.HandleSessionClosed(payload)
+            except Exception:
+                logger.exception("summary generation failed payload_size=%s", len(payload))
+                raise
+
+        try:
+            await nats.connect(cfg.nats_url)
+            await bus.subscribe(None, domain.SUBJECT_SESSION_CLOSED, repo, _handle_session_closed)
+            await service.Start()
+            logger.info("writer startup dependencies ready attempts=%s", attempt)
+            return bus, service
+        except asyncio.CancelledError:
+            try:
+                await bus.aclose()
+            except Exception:
+                logger.exception("writer shutdown during startup failed while closing bus")
+            raise
+        except Exception:
+            delay = _startup_backoff_seconds(attempt)
+            logger.exception(
+                "writer startup dependency setup failed attempts=%s retry_in=%.1fs",
+                attempt,
+                delay,
+            )
+            try:
+                await bus.aclose()
+            except Exception:
+                logger.exception("writer startup retry cleanup failed attempts=%s", attempt)
+            await asyncio.sleep(delay)
+
 
 async def main() -> None:
     configure_logging("writer")
@@ -25,20 +73,7 @@ async def main() -> None:
     repo = Repository(mongo_client[cfg.mongo_db])
     repo.ensure_indexes(None)
 
-    nats = NATS()
-    await nats.connect(cfg.nats_url)
-    bus = Bus(nats, cfg.event_signing_secret, "writer")
-    service = Service(repo, bus)
-
-    async def _handle_session_closed(payload: bytes) -> None:
-        try:
-            await service.HandleSessionClosed(payload)
-        except Exception:
-            logger.exception("summary generation failed payload_size=%s", len(payload))
-            raise
-
-    await bus.subscribe(None, domain.SUBJECT_SESSION_CLOSED, repo, _handle_session_closed)
-    await service.Start()
+    bus, service = await _start_with_retry(cfg, repo)
 
     async def sweep_pending() -> None:
         while True:

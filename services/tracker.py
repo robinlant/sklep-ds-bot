@@ -33,8 +33,10 @@ async def main() -> None:
         bus,
         Defaults(tracking_mode=cfg.tracking_mode, tracked_channel_ids=cfg.tracked_channel_ids),
     )
+    startup_ready = asyncio.Event()
 
     async def handle(payload: bytes) -> None:
+        await startup_ready.wait()
         try:
             await service.HandleVoiceEvent(decode_voice_event(payload))
         except Exception:
@@ -43,6 +45,7 @@ async def main() -> None:
 
     await bus.subscribe(None, domain.SUBJECT_VOICE_EVENT, repo, handle)
     await service.Start()
+    startup_ready.set()
 
     try:
         await asyncio.Event().wait()

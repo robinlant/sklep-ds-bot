@@ -39,6 +39,21 @@ def _cursor_all(cursor: Any) -> list[dict[str, Any]]:
     return list(cursor)
 
 
+def _millis_between(start: datetime | None, end: datetime | None) -> int:
+    if start is None or end is None:
+        return 0
+    duration_ms = int((end - start).total_seconds() * 1000)
+    if duration_ms < 0:
+        return 0
+    return duration_ms
+
+
+def _time_or_min(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.min.replace(tzinfo=UTC)
+    return value
+
+
 class Repository:
     def __init__(self, db: Any) -> None:
         self.db = db
@@ -59,6 +74,8 @@ class Repository:
         self.participants.create_index([("sessionId", 1), ("active", 1)])
         self.participants.create_index([("guildId", 1), ("sessionId", 1), ("active", 1)])
         self.participants.create_index([("guildId", 1), ("channelId", 1), ("sessionId", 1)])
+        self.participants.create_index([("guildId", 1), ("userId", 1), ("sessionId", 1)])
+        self.participants.create_index([("guildId", 1), ("userId", 1), ("joinedAt", -1)])
         self.participants.create_index(
             [("sessionId", 1), ("userId", 1), ("active", 1)],
             unique=True,
@@ -336,6 +353,125 @@ class Repository:
             {"_id": participant_id},
             {"$set": {"active": False, "leftAt": left_at, "durationMs": duration_ms}},
         )
+
+    def list_voice_totals_by_guild(self, _ctx: Any, guild_id: str) -> list[dict[str, Any]]:
+        guild_id = str(guild_id or "").strip()
+        if guild_id == "":
+            return []
+
+        participants = [
+            p
+            for p in (
+                ParticipantInterval.from_mongo(doc)
+                for doc in _cursor_all(self.participants.find({"guildId": guild_id}))
+            )
+            if p is not None and str(p.user_id or "").strip() != ""
+        ]
+        if len(participants) == 0:
+            return []
+        participants.sort(key=lambda item: (str(item.user_id or ""), _time_or_min(item.joined_at), str(item.id or "")))
+
+        sessions = self._load_sessions_by_ids(guild_id, {str(p.session_id or "").strip() for p in participants})
+        now = _utc_now()
+        totals: dict[str, dict[str, Any]] = {}
+        name_rank: dict[str, tuple[int, datetime, str]] = {}
+        for participant in participants:
+            user_id = str(participant.user_id or "").strip()
+            if user_id == "":
+                continue
+            total = totals.get(user_id)
+            if total is None:
+                total = {"user_id": user_id, "user_name": "", "total_for": 0}
+                totals[user_id] = total
+            total["total_for"] = int(total["total_for"]) + self._participant_duration_ms(
+                participant, sessions.get(str(participant.session_id or "").strip()), now
+            )
+
+            user_name = str(participant.user_name or "").strip()
+            if user_name != "":
+                candidate_rank = (
+                    1 if participant.joined_at is not None else 0,
+                    _time_or_min(participant.joined_at),
+                    str(participant.id or ""),
+                )
+                if candidate_rank >= name_rank.get(user_id, (0, datetime.min.replace(tzinfo=UTC), "")):
+                    total["user_name"] = user_name
+                    name_rank[user_id] = candidate_rank
+
+        rows = list(totals.values())
+        for row in rows:
+            if str(row["user_name"]).strip() == "":
+                row["user_name"] = str(row["user_id"])
+        rows.sort(key=lambda row: (-int(row["total_for"]), str(row["user_name"]).casefold(), str(row["user_id"])))
+        return rows
+
+    def get_member_profile(self, _ctx: Any, guild_id: str, user_id: str) -> dict[str, Any] | None:
+        guild_id = str(guild_id or "").strip()
+        user_id = str(user_id or "").strip()
+        if guild_id == "" or user_id == "":
+            return None
+
+        participants = [
+            p
+            for p in (
+                ParticipantInterval.from_mongo(doc)
+                for doc in _cursor_all(self.participants.find({"guildId": guild_id, "userId": user_id}))
+            )
+            if p is not None
+        ]
+        if len(participants) == 0:
+            return None
+        participants.sort(key=lambda item: (_time_or_min(item.joined_at), str(item.id or "")))
+
+        sessions = self._load_sessions_by_ids(guild_id, {str(p.session_id or "").strip() for p in participants})
+        now = _utc_now()
+        total_for = 0
+        user_name = ""
+        selected_name_rank = (0, datetime.min.replace(tzinfo=UTC), "")
+        for participant in participants:
+            total_for += self._participant_duration_ms(
+                participant, sessions.get(str(participant.session_id or "").strip()), now
+            )
+            candidate_name = str(participant.user_name or "").strip()
+            if candidate_name == "":
+                continue
+            candidate_rank = (
+                1 if participant.joined_at is not None else 0,
+                _time_or_min(participant.joined_at),
+                str(participant.id or ""),
+            )
+            if candidate_rank >= selected_name_rank:
+                user_name = candidate_name
+                selected_name_rank = candidate_rank
+
+        if user_name == "":
+            user_name = user_id
+        return {"user_id": user_id, "user_name": user_name, "total_for": total_for, "roles": []}
+
+    def get_user_voice_summary(self, ctx: Any, guild_id: str, user_id: str) -> dict[str, Any] | None:
+        return self.get_member_profile(ctx, guild_id, user_id)
+
+    def _load_sessions_by_ids(self, guild_id: str, session_ids: set[str]) -> dict[str, Session]:
+        session_ids = {str(session_id or "").strip() for session_id in session_ids if str(session_id or "").strip() != ""}
+        if len(session_ids) == 0:
+            return {}
+        cursor = self.sessions.find({"guildId": guild_id, "_id": {"$in": sorted(session_ids)}})
+        sessions: dict[str, Session] = {}
+        for session in (Session.from_mongo(doc) for doc in _cursor_all(cursor)):
+            if session is None:
+                continue
+            sessions[session.id] = session
+        return sessions
+
+    def _participant_duration_ms(self, participant: ParticipantInterval, session: Session | None, now: datetime) -> int:
+        duration_ms = int(participant.duration_ms or 0)
+        if duration_ms > 0:
+            return duration_ms
+
+        end = participant.left_at
+        if end is None and session is not None and session.ended_at is not None:
+            end = session.ended_at
+        return _millis_between(participant.joined_at, end)
 
     def GetGuildSettings(self, guild_id: str) -> GuildSettings | None:
         return self.get_guild_settings(None, guild_id)

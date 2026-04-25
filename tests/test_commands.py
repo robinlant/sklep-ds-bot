@@ -7,6 +7,7 @@ import pytest
 from voice_tracker import domain
 from voice_tracker.commands import (
     ActiveSessionView,
+    BOT_SETTING_COMMAND_NAME,
     INSPECT_ACTIVE_ALL_COMMAND,
     INSPECT_ACTIVE_CHANNEL_COMMAND,
     INSPECT_COMMAND_NAME,
@@ -16,10 +17,16 @@ from voice_tracker.commands import (
     Service,
     SETTINGS_COMMAND_NAME,
     TRACK_COMMAND_NAME,
+    TRACK_LIST_COMMAND_NAME,
     can_use_voice_command,
+    command_policy,
     format_duration,
+    normalize_snowflake_id,
+    option_role_id,
+    option_user_id,
     option_int_in_range,
     parse_voice_route,
+    registered_voice_command_routes,
     resolve_command_channel,
     voice_application_commands,
 )
@@ -190,12 +197,13 @@ def test_can_use_voice_command_requires_admin_for_admin_only_commands() -> None:
 
     admin_only_routes = [
         ("audit", ""),
-        ("bot-setting", ""),
+        (SETTINGS_COMMAND_NAME, "show"),
+        (BOT_SETTING_COMMAND_NAME, ""),
         (TRACK_COMMAND_NAME, "add"),
         (TRACK_COMMAND_NAME, "remove"),
         (TRACK_COMMAND_NAME, "list"),
-        ("track-list", "clear"),
-        (INSPECT_COMMAND_NAME, "channel"),
+        (TRACK_LIST_COMMAND_NAME, "clear"),
+        (INSPECT_COMMAND_NAME, ""),
         ("autorole", ""),
     ]
     for root, command in admin_only_routes:
@@ -217,6 +225,7 @@ def test_voice_application_commands_have_expected_routes() -> None:
     commands = {command.name: command for command in voice_application_commands()}
     assert list(commands) == [
         "audit",
+        "settings",
         "bot-setting",
         "track",
         "track-list",
@@ -228,8 +237,13 @@ def test_voice_application_commands_have_expected_routes() -> None:
         "userinfo",
     ]
 
+    assert [option.name for option in commands[SETTINGS_COMMAND_NAME].options] == ["show", "mode", "summary-set", "summary-clear"]
+    mode_option = next(option for option in commands[SETTINGS_COMMAND_NAME].options if option.name == "mode")
+    assert len(mode_option.options) == 1
+    assert [choice.name for choice in mode_option.options[0].choices] == [domain.GUILD_TRACKING_MODE_ALL]
     track_routes = [option.name for option in commands[TRACK_COMMAND_NAME].options]
     assert track_routes == ["add", "remove", "list"]
+    assert [option.options for option in commands[TRACK_COMMAND_NAME].options if option.name in {"add", "remove"}] == [[], []]
     assert [option.name for option in commands["track-list"].options] == ["clear"]
     assert [option.name for option in commands[INSPECT_COMMAND_NAME].options] == ["channel"]
     assert [option.name for option in commands["unmute"].options] == ["add", "remove", "list"]
@@ -241,13 +255,16 @@ def test_handle_track_add_and_clear() -> None:
     interaction = interaction_with_channels("g1", PERMISSION_MANAGE_GUILD, {"c1": Channel(id="c1", guild_id="g1", type="guild_voice")})
 
     content = svc.handle_track_command(None, interaction, "add", [option("channel", "c1")])
+    assert "Deprecated command" in content
     assert "tracking mode: all" in content
     assert "tracked channels: all voice channels" in content
-    assert "stored channels:" not in content
 
     repo.settings["g1"] = domain.new_guild_settings("g1", domain.GUILD_TRACKING_MODE_SPECIFIC, ["c1", "c2"], "")
     content = svc.handle_track_command(None, interaction, "clear", [])
-    assert "no voice channels" in content
+    assert "Deprecated command" in content
+    assert "tracking mode: all" in content
+    assert repo.settings["g1"].tracking_mode == domain.GUILD_TRACKING_MODE_ALL
+    assert repo.settings["g1"].tracked_channel_ids == []
 
 
 def test_handle_settings_commands() -> None:
@@ -256,7 +273,8 @@ def test_handle_settings_commands() -> None:
     interaction = interaction_with_channels("g1", PERMISSION_MANAGE_GUILD, {"t1": Channel(id="t1", guild_id="g1", type="guild_text")})
 
     content = svc.handle_settings_command(None, interaction, "mode", [option("mode", domain.GUILD_TRACKING_MODE_NONE)])
-    assert "tracking mode: none" in content
+    assert "Tracking mode is fixed to 'all'" in content
+    assert "tracking mode: all" in content
 
     content = svc.handle_settings_command(None, interaction, "summary-set", [option("channel", "t1")])
     assert "audit channel: <#t1>" in content
@@ -380,6 +398,32 @@ def test_resolve_command_channel_validates_resolution() -> None:
     wrong_guild = interaction_with_channels("g1", PERMISSION_MANAGE_GUILD, {"c1": Channel(id="c1", guild_id="g2", type="guild_voice")})
     with pytest.raises(ValueError, match="channel must belong to this guild"):
         resolve_command_channel(wrong_guild, [option("channel", "c1")], "channel", "guild_voice")
+
+
+def test_policy_coverage_for_registered_routes_is_deterministic() -> None:
+    for root, command in registered_voice_command_routes():
+        assert command_policy(root, command) is not None
+
+    assert command_policy("bot-setting", "") is not None
+    assert command_policy("settings", "") is not None
+    assert command_policy("inspect", "channel") is not None
+    assert command_policy("autorole", "role") is not None
+    assert command_policy("userinfo", "user") is not None
+
+
+def test_option_snowflake_parsing_accepts_str_and_int_values() -> None:
+    interaction = interaction_with_channels(
+        "g1",
+        PERMISSION_MANAGE_GUILD,
+        {"1234567890": Channel(id="1234567890", guild_id="g1", type="guild_voice")},
+    )
+
+    resolved_channel = resolve_command_channel(interaction, [option("channel", 1234567890)], "channel", "guild_voice")
+    assert resolved_channel == "1234567890"
+    assert option_user_id([option("user", 999)], "user") == "999"
+    assert option_role_id([option("role", 777)], "role") == "777"
+    assert option_user_id([option("user", "111")], "user") == "111"
+    assert normalize_snowflake_id(True) == ""
 
 
 def test_option_int_in_range_rounds_and_defaults() -> None:
