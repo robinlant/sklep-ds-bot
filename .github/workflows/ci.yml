@@ -57,3 +57,25 @@ jobs:
       - name: Run deprecation-strict tests
         if: matrix.lane == 'deprecation-strict'
         run: pytest -W error::DeprecationWarning
+
+  required-test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[test]"
+
+      - name: Run required tests
+        run: pytest
