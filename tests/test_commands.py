@@ -212,6 +212,7 @@ def test_can_use_voice_command_requires_admin_for_admin_only_commands() -> None:
         (SETTINGS_COMMAND_NAME, "summary-clear"),
         ("connect", ""),
         ("disconnect", ""),
+        ("status", ""),
         (INSPECT_COMMAND_NAME, ""),
         ("autorole", ""),
     ]
@@ -242,6 +243,7 @@ def test_voice_application_commands_have_expected_routes() -> None:
         "unmute",
         "dashboard",
         "userinfo",
+        "status",
     ]
 
     assert [option.name for option in commands[SETTINGS_COMMAND_NAME].options] == ["show", "mode", "soundboard", "summary-set", "summary-clear"]
@@ -255,6 +257,7 @@ def test_voice_application_commands_have_expected_routes() -> None:
     assert commands["disconnect"].options == []
     assert [option.name for option in commands[INSPECT_COMMAND_NAME].options] == ["channel"]
     assert [option.name for option in commands["unmute"].options] == ["add", "remove", "list"]
+    assert [option.name for option in commands["status"].options] == ["state"]
 
 def test_handle_settings_commands() -> None:
     repo = FakeRepo()
@@ -402,6 +405,7 @@ def test_policy_coverage_for_registered_routes_is_deterministic() -> None:
     assert command_policy("settings", "") is not None
     assert command_policy("connect", "") is not None
     assert command_policy("disconnect", "") is not None
+    assert command_policy("status", "") is not None
     assert command_policy("inspect", "channel") is not None
     assert command_policy("autorole", "role") is not None
     assert command_policy("userinfo", "user") is not None
