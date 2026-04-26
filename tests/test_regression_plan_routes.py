@@ -59,6 +59,7 @@ SUPPORTED_ADMIN_ONLY_ROUTES = [
     ("connect", ""),
     ("connect", "channel"),
     ("disconnect", ""),
+    ("status", ""),
     (INSPECT_COMMAND_NAME, "channel"),
     (INSPECT_COMMAND_NAME, INSPECT_ACTIVE_ALL_COMMAND),
     (INSPECT_COMMAND_NAME, INSPECT_HISTORY_ALL_COMMAND),

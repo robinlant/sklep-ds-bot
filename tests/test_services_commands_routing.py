@@ -239,3 +239,69 @@ async def test_dispatch_command_disconnect_clears_managed_voice_channel() -> Non
 
     assert result == "Managed voice connection disabled."
     assert service.clear_calls == ["g1"]
+
+
+class _StatusClient:
+    def __init__(self) -> None:
+        self.presence_calls: list[object] = []
+
+    async def change_presence(self, *, status=None, activity=None) -> None:
+        del activity
+        self.presence_calls.append(status)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_command_status_sets_dnd_from_disturb_alias() -> None:
+    client = _StatusClient()
+
+    result = await commands_service._dispatch_command(
+        client,  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        _interaction_model(PERMISSION_ADMINISTRATOR),
+        "status",
+        "",
+        [ApplicationCommandInteractionDataOption(name="state", value="disturb")],
+        [],
+    )
+
+    assert result == "Bot status set to do-not-disturb."
+    assert client.presence_calls == [commands_service.discord.Status.dnd]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_command_status_maps_offline_to_invisible() -> None:
+    client = _StatusClient()
+
+    result = await commands_service._dispatch_command(
+        client,  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        _interaction_model(PERMISSION_ADMINISTRATOR),
+        "status",
+        "",
+        [ApplicationCommandInteractionDataOption(name="state", value="offline")],
+        [],
+    )
+
+    assert result == "Bot status set to offline (mapped to invisible)."
+    assert client.presence_calls == [commands_service.discord.Status.invisible]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_command_status_requires_admin_permissions() -> None:
+    client = _StatusClient()
+
+    result = await commands_service._dispatch_command(
+        client,  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        _interaction_model(0),
+        "status",
+        "",
+        [ApplicationCommandInteractionDataOption(name="state", value="online")],
+        [],
+    )
+
+    assert result == "Insufficient permissions."
+    assert client.presence_calls == []

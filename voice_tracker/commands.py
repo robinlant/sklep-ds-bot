@@ -43,6 +43,7 @@ AUTOROLE_COMMAND_NAME = "autorole"
 UNMUTE_COMMAND_NAME = "unmute"
 DASHBOARD_COMMAND_NAME = "dashboard"
 USERINFO_COMMAND_NAME = "userinfo"
+STATUS_COMMAND_NAME = "status"
 
 VOICE_COMMAND_NAMES = {
     SETTINGS_COMMAND_NAME,
@@ -54,6 +55,7 @@ VOICE_COMMAND_NAMES = {
     UNMUTE_COMMAND_NAME,
     DASHBOARD_COMMAND_NAME,
     USERINFO_COMMAND_NAME,
+    STATUS_COMMAND_NAME,
 }
 INSPECT_HISTORY_ALL_COMMAND = "history.all"
 INSPECT_HISTORY_PICK_COMMAND = "history.pick"
@@ -113,6 +115,7 @@ COMMAND_POLICIES: dict[tuple[str, str], CommandPolicy] = {
     (UNMUTE_COMMAND_NAME, "list"): CommandPolicy(UNMUTE_COMMAND_NAME, "list", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_unmute_command"),
     (DASHBOARD_COMMAND_NAME, ""): CommandPolicy(DASHBOARD_COMMAND_NAME, "", COMMAND_ACCESS_ALL_USER, None, "handle_dashboard_command"),
     (USERINFO_COMMAND_NAME, ""): CommandPolicy(USERINFO_COMMAND_NAME, "", COMMAND_ACCESS_ALL_USER, None, "handle_userinfo_command"),
+    (STATUS_COMMAND_NAME, ""): CommandPolicy(STATUS_COMMAND_NAME, "", COMMAND_ACCESS_ADMIN_ONLY, PERMISSION_ADMINISTRATOR, "handle_status_command"),
 }
 
 COMMAND_ROUTE_ALIASES: dict[tuple[str, str], tuple[str, str]] = {
@@ -737,6 +740,20 @@ class Service:
             lines.append(f"Roles: {_truncate_list(profile.roles, 10)}")
         return "\n".join(lines)
 
+    def handle_status_command(
+        self,
+        ctx: Any,
+        interaction: InteractionCreate,
+        command: str,
+        options: list[ApplicationCommandInteractionDataOption],
+    ) -> str:
+        del ctx, interaction, command
+        state = option_string(options, "state").lower().strip()
+        allowed = {"online", "idle", "dnd", "invisible", "offline"}
+        if state not in allowed:
+            raise ValueError("state must be one of: online, idle, dnd, invisible, offline")
+        return f"Bot status requested: {state}."
+
     def get_member_profile(self, ctx: Any, guild_id: str, user_id: str) -> MemberProfileView | None:
         return _load_member_profile(self.repo, ctx, guild_id, user_id)
 
@@ -801,6 +818,7 @@ def voice_application_commands() -> list[ApplicationCommand]:
         unmute_application_command(),
         dashboard_application_command(),
         userinfo_application_command(),
+        status_application_command(),
     ]
 
 
@@ -888,6 +906,15 @@ def userinfo_application_command() -> CommandDefinition:
         name=USERINFO_COMMAND_NAME,
         description="Show a member's voice-time summary",
         options=[_user_option("user", "Member to inspect")],
+    )
+
+
+def status_application_command() -> CommandDefinition:
+    return CommandDefinition(
+        name=STATUS_COMMAND_NAME,
+        description="Set bot presence status",
+        options=[_status_state_option()],
+        default_member_permissions=PERMISSION_ADMINISTRATOR,
     )
 
 
@@ -1001,6 +1028,22 @@ def _soundboard_state_option() -> ApplicationCommandOption:
         choices=[
             ApplicationCommandOptionChoice(name="on", value="on"),
             ApplicationCommandOptionChoice(name="off", value="off"),
+        ],
+    )
+
+
+def _status_state_option() -> ApplicationCommandOption:
+    return ApplicationCommandOption(
+        type=OPTION_TYPE_STRING,
+        name="state",
+        description="online, idle, dnd, invisible, or offline",
+        required=True,
+        choices=[
+            ApplicationCommandOptionChoice(name="online", value="online"),
+            ApplicationCommandOptionChoice(name="idle", value="idle"),
+            ApplicationCommandOptionChoice(name="dnd", value="dnd"),
+            ApplicationCommandOptionChoice(name="invisible", value="invisible"),
+            ApplicationCommandOptionChoice(name="offline", value="offline"),
         ],
     )
 

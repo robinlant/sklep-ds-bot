@@ -75,6 +75,7 @@ def test_default_commands_match_mvp_catalog() -> None:
         "unmute",
         "dashboard",
         "userinfo",
+        "status",
     ]
     assert "audit" not in commands
     assert "bot-setting" not in commands
@@ -86,7 +87,7 @@ def test_default_commands_match_mvp_catalog() -> None:
 def test_mvp_command_payloads_have_expected_shapes_and_permissions() -> None:
     commands = {command["name"]: command for command in appcommands.default_commands()}
 
-    admin_commands = {"settings", "connect", "disconnect", "inspect", "autorole", "unmute"}
+    admin_commands = {"settings", "connect", "disconnect", "inspect", "autorole", "unmute", "status"}
     all_user_commands = {"jump", "dashboard", "userinfo"}
     for name in admin_commands:
         assert str(commands[name].get("default_member_permissions")) == str(PERMISSION_ADMINISTRATOR)
@@ -107,6 +108,8 @@ def test_mvp_command_payloads_have_expected_shapes_and_permissions() -> None:
     assert _option_type(_nested_option_by_name(commands["unmute"]["options"], "add", "user")) == 6
     assert _option_type(_nested_option_by_name(commands["unmute"]["options"], "remove", "user")) == 6
     assert _option_type(_option_by_name(commands["userinfo"]["options"], "user")) == 6
+    status_state_option = _option_by_name(commands["status"]["options"], "state")
+    assert _choice_names(status_state_option) == ["online", "idle", "dnd", "invisible", "offline"]
 
 
 def _option_names(options: list[Any]) -> list[str]:

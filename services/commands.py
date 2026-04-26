@@ -17,6 +17,7 @@ from pymongo import MongoClient
 
 from voice_tracker.appcommands import commands as application_commands
 from voice_tracker.commands import (
+    STATUS_COMMAND_NAME,
     Service as VoiceService,
     VOICE_COMMAND_NAMES,
     can_use_voice_command,
@@ -55,6 +56,7 @@ TARGET_COMMAND_NAMES = {
     "unmute",
     "dashboard",
     "userinfo",
+    STATUS_COMMAND_NAME,
 }
 
 SUPPORTED_COMMAND_NAMES = (VOICE_COMMAND_NAMES | TARGET_COMMAND_NAMES) - LEGACY_ROOT_COMMAND_NAMES
@@ -291,6 +293,10 @@ async def _dispatch_command(
         if not _is_admin_only(model):
             return "Insufficient permissions."
         return await _dispatch_disconnect_command(service, model)
+    if root == STATUS_COMMAND_NAME:
+        if not _is_admin_only(model):
+            return "Insufficient permissions."
+        return await _dispatch_status_command(client, options)
     if root == "autorole":
         if not _is_admin_only(model):
             return "Insufficient permissions."
@@ -442,6 +448,21 @@ async def _dispatch_connect_command(
 async def _dispatch_disconnect_command(service: VoiceService, model: InteractionCreate) -> str:
     service.clear_managed_voice_channel(None, model.guild_id)
     return "Managed voice connection disabled."
+
+
+async def _dispatch_status_command(
+    client: discord.Client,
+    options: list[ApplicationCommandInteractionDataOption],
+) -> str:
+    requested = _option_string(options, "state")
+    if requested == "":
+        raise ValueError("state is required")
+    status_key, status_value = _presence_status(requested)
+    await client.change_presence(status=status_value)
+    label = _presence_status_label(status_key)
+    if status_key == "offline":
+        return f"Bot status set to {label} (mapped to invisible)."
+    return f"Bot status set to {label}."
 
 
 async def _dispatch_userinfo_command(
@@ -605,6 +626,43 @@ def _option_string(options: list[ApplicationCommandInteractionDataOption], name:
         if isinstance(option.value, int) and not isinstance(option.value, bool):
             return str(option.value)
     return ""
+
+
+def _presence_status(value: str) -> tuple[str, discord.Status]:
+    key = value.lower().strip().replace("_", "-").replace(" ", "-")
+    aliases = {
+        "online": "online",
+        "idle": "idle",
+        "away": "idle",
+        "dnd": "dnd",
+        "do-not-disturb": "dnd",
+        "donotdisturb": "dnd",
+        "disturb": "dnd",
+        "invisible": "invisible",
+        "offline": "offline",
+    }
+    canonical = aliases.get(key, "")
+    if canonical == "":
+        raise ValueError("state must be one of: online, idle, dnd, invisible, offline")
+    statuses = {
+        "online": discord.Status.online,
+        "idle": discord.Status.idle,
+        "dnd": discord.Status.dnd,
+        "invisible": discord.Status.invisible,
+        "offline": discord.Status.invisible,
+    }
+    return canonical, statuses[canonical]
+
+
+def _presence_status_label(value: str) -> str:
+    labels = {
+        "online": "online",
+        "idle": "idle",
+        "dnd": "do-not-disturb",
+        "invisible": "invisible",
+        "offline": "offline",
+    }
+    return labels.get(value, value)
 
 
 def _command_context(
