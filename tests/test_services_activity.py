@@ -41,8 +41,8 @@ def test_embed_description_for_exact_invite_used_includes_inviter() -> None:
 
     description = activity._embed_description(event)
 
-    assert "Alice (42)" in description
-    assert "Owner (7)" in description
+    assert "Alice <@42>" in description
+    assert "Owner <@7>" in description
     assert "https://discord.gg/abc" in description
 
 

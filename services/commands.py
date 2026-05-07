@@ -592,11 +592,12 @@ async def _dashboard_description(
     lines = ["Sorted by voice time", ""]
     for index, (row, display_name) in enumerate(zip(visible_rows, display_names, strict=False), start=start + 1):
         user_id = str(getattr(row, "user_id", "") or "")
-        clickable_tag = f"<@{user_id}>" if user_id else display_name
-        if display_name and clickable_tag and display_name != clickable_tag:
-            lines.append(f"**#{index}.** {display_name} {clickable_tag}")
-        elif clickable_tag:
-            lines.append(f"**#{index}.** {clickable_tag}")
+        clickable_tag = f"<@{user_id}>" if user_id else ""
+        label = display_name or ("Unknown user" if user_id else "")
+        if label and clickable_tag:
+            lines.append(f"**#{index}.** {label} {clickable_tag}")
+        elif label:
+            lines.append(f"**#{index}.** {label}")
         else:
             lines.append(f"**#{index}.** Unknown user")
         lines.append(f"Hours: `{_dashboard_duration(getattr(row, 'total_for', None))}`")
