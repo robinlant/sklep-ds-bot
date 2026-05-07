@@ -148,7 +148,9 @@ async def test_dashboard_prefers_live_name_when_stored_name_is_raw_user_id(monke
 
 
 @pytest.mark.asyncio
-async def test_dashboard_falls_back_to_mention_only_when_no_real_name_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dashboard_falls_back_to_unknown_label_with_mention_when_no_real_name_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service = _DashboardServiceStub(
         [
             VoiceTotalView(user_id="352316913528995842", user_name="", total_for=timedelta(seconds=25)),
@@ -174,5 +176,5 @@ async def test_dashboard_falls_back_to_mention_only_when_no_real_name_exists(mon
     assert isinstance(result, commands_service.InteractionMessage)
     assert result.embed is not None
     assert result.embed.description is not None
-    assert "**#1.** <@352316913528995842>" in result.embed.description
+    assert "**#1.** Unknown user <@352316913528995842>" in result.embed.description
     assert "352316913528995842 <@352316913528995842>" not in result.embed.description

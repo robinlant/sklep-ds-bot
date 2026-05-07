@@ -65,22 +65,23 @@ def _event_color(event_type: str) -> int:
 
 
 def _member_label(event: domain.ActivityEvent) -> str:
-    if event.member_user_id and event.member_name:
-        return f"{event.member_name} ({event.member_user_id})"
-    if event.member_user_id:
-        return event.member_user_id
-    if event.member_name:
-        return event.member_name
-    return "unknown"
+    return _label_with_mention(event.member_name, event.member_user_id)
 
 
 def _actor_label(event: domain.ActivityEvent) -> str:
-    if event.actor_user_id and event.actor_name:
-        return f"{event.actor_name} ({event.actor_user_id})"
-    if event.actor_user_id:
-        return event.actor_user_id
-    if event.actor_name:
-        return event.actor_name
+    return _label_with_mention(event.actor_name, event.actor_user_id)
+
+
+def _label_with_mention(name: str, user_id: str) -> str:
+    clean_name = str(name or "").strip()
+    clean_user_id = str(user_id or "").strip()
+    mention = f"<@{clean_user_id}>" if clean_user_id else ""
+    if clean_name and mention:
+        return f"{clean_name} {mention}"
+    if clean_name:
+        return clean_name
+    if mention:
+        return mention
     return "unknown"
 
 
