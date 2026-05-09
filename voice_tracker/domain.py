@@ -911,6 +911,8 @@ class MemberNicknameState:
     nickname: str = ""
     last_seen_at: datetime | None = None
     updated_at: datetime | None = None
+    last_restored_at: datetime | None = None
+    pending_restore: bool = False
 
     def __post_init__(self) -> None:
         self.guild_id = _clean(self.guild_id)
@@ -921,6 +923,8 @@ class MemberNicknameState:
         self.id = _clean(self.id)
         self.last_seen_at = ensure_utc(self.last_seen_at)
         self.updated_at = ensure_utc(self.updated_at)
+        self.last_restored_at = ensure_utc(self.last_restored_at)
+        self.pending_restore = bool(self.pending_restore)
 
     @classmethod
     def from_mongo(cls, data: dict[str, Any] | None) -> "MemberNicknameState | None":
@@ -933,6 +937,8 @@ class MemberNicknameState:
             nickname=data.get("nickname", ""),
             last_seen_at=parse_datetime(data.get("lastSeenAt")),
             updated_at=parse_datetime(data.get("updatedAt")),
+            last_restored_at=parse_datetime(data.get("lastRestoredAt")),
+            pending_restore=bool(data.get("pendingRestore", False)),
         )
 
     def to_mongo(self) -> dict[str, Any]:
@@ -941,10 +947,12 @@ class MemberNicknameState:
             "guildId": self.guild_id,
             "userId": self.user_id,
             "nickname": self.nickname,
+            "pendingRestore": bool(self.pending_restore),
         }
         optional = {
             "lastSeenAt": self.last_seen_at,
             "updatedAt": self.updated_at,
+            "lastRestoredAt": self.last_restored_at,
         }
         data.update({key: value for key, value in optional.items() if value is not None})
         return data

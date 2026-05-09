@@ -15,6 +15,7 @@ with warnings.catch_warnings():
     import discord
 from pymongo import MongoClient
 
+from services.chat_templates import dashboard_ranking_top
 from voice_tracker.appcommands import commands as application_commands
 from voice_tracker.commands import (
     STATUS_COMMAND_NAME,
@@ -94,19 +95,26 @@ class DashboardView(discord.ui.View):
         self._sync_buttons()
 
     async def build_embed(self, guild: discord.Guild | None = None) -> discord.Embed:
-        embed = discord.Embed(
-            title="Ranking Top",
-            description=await _dashboard_description(
-                self.client,
-                guild or self.guild,
-                self.rows,
-                self.page,
-                self.page_size,
-                resolved_display_names=self.resolved_display_names,
-            ),
-            color=0x2B2D42,
+        description = await _dashboard_description(
+            self.client,
+            guild or self.guild,
+            self.rows,
+            self.page,
+            self.page_size,
+            resolved_display_names=self.resolved_display_names,
         )
-        embed.set_footer(text=f"Page {self.page} of {self.total_pages} • Total members: {len(self.rows)}")
+        payload = dashboard_ranking_top.render(
+            description=description,
+            page=self.page,
+            total_pages=self.total_pages,
+            total_members=len(self.rows),
+        )
+        embed = discord.Embed(
+            title=str(payload.get("title", "Ranking Top")),
+            description=str(payload.get("description", description)),
+            color=int(payload.get("color", 0x2B2D42)),
+        )
+        embed.set_footer(text=str(payload.get("footer", "")))
         return embed
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:

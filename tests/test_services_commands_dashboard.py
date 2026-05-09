@@ -72,7 +72,7 @@ async def test_dispatch_dashboard_command_returns_paginated_embed_with_arrow_vie
     assert "Sorted by voice time" in result.embed.description
     assert "**#1.** Member 1 <@user-1>" in result.embed.description
     assert "Hours: `12:34:56`" in result.embed.description
-    assert result.embed.footer.text == "Page 1 of 1 • Total members: 2"
+    assert result.embed.footer.text == "Page 1 of 1 - Total members: 2"
 
     view = result.view
     labels = {str(getattr(child, "label", "")): bool(getattr(child, "disabled", False)) for child in view.children}
@@ -96,7 +96,7 @@ async def test_dashboard_view_next_arrow_edits_message_to_next_page() -> None:
     assert edited_embed.description is not None
     assert "**#11.** Member 11 <@user-11>" in edited_embed.description
     assert "Hours: `11:00:00`" in edited_embed.description
-    assert edited_embed.footer.text == "Page 2 of 2 • Total members: 11"
+    assert edited_embed.footer.text == "Page 2 of 2 - Total members: 11"
 
     labels = {str(getattr(child, "label", "")): bool(getattr(child, "disabled", False)) for child in edited_view.children}
     assert labels["<<"] is False
