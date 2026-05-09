@@ -122,8 +122,10 @@ def test_sync_member_nickname_state_records_current_nickname() -> None:
         *,
         source: str = "",
         previous_nickname: str | None = None,
+        pending_restore: bool = False,
     ):
         assert previous_nickname is None
+        assert pending_restore is False
         calls.append((guild_id, user_id, nickname, source))
 
     repo = SimpleNamespace(record_member_nickname=record_member_nickname)
@@ -134,13 +136,8 @@ def test_sync_member_nickname_state_records_current_nickname() -> None:
     assert calls == [("123", "42", "Raid Nick", "member_join")]
 
 
-def test_sync_member_nickname_state_preserves_stored_nickname_for_member_remove() -> None:
+def test_sync_member_nickname_state_records_empty_nickname_for_member_remove() -> None:
     calls: list[tuple[str, str, str, str]] = []
-
-    def get_member_nickname_state(_ctx, guild_id: str, user_id: str):
-        assert guild_id == "123"
-        assert user_id == "42"
-        return SimpleNamespace(nickname="Raid Nick")
 
     def record_member_nickname(
         _ctx,
@@ -151,28 +148,22 @@ def test_sync_member_nickname_state_preserves_stored_nickname_for_member_remove(
         *,
         source: str = "",
         previous_nickname: str | None = None,
+        pending_restore: bool = False,
     ):
         assert previous_nickname is None
+        assert pending_restore is False
         calls.append((guild_id, user_id, nickname, source))
 
-    repo = SimpleNamespace(
-        get_member_nickname_state=get_member_nickname_state,
-        record_member_nickname=record_member_nickname,
-    )
+    repo = SimpleNamespace(record_member_nickname=record_member_nickname)
     member = SimpleNamespace(id="42", guild=SimpleNamespace(id="123"), nick="", bot=False)
 
     gateway._sync_member_nickname_state(repo, member, source="member_remove")
 
-    assert calls == [("123", "42", "Raid Nick", "member_remove")]
+    assert calls == [("123", "42", "", "member_remove")]
 
 
-def test_sync_member_nickname_state_preserves_stored_nickname_for_member_join() -> None:
+def test_sync_member_nickname_state_records_empty_nickname_for_member_join() -> None:
     calls: list[tuple[str, str, str, str]] = []
-
-    def get_member_nickname_state(_ctx, guild_id: str, user_id: str):
-        assert guild_id == "123"
-        assert user_id == "42"
-        return SimpleNamespace(nickname="Raid Nick")
 
     def record_member_nickname(
         _ctx,
@@ -183,50 +174,152 @@ def test_sync_member_nickname_state_preserves_stored_nickname_for_member_join() 
         *,
         source: str = "",
         previous_nickname: str | None = None,
+        pending_restore: bool = False,
     ):
         assert previous_nickname is None
+        assert pending_restore is False
         calls.append((guild_id, user_id, nickname, source))
 
-    repo = SimpleNamespace(
-        get_member_nickname_state=get_member_nickname_state,
-        record_member_nickname=record_member_nickname,
-    )
+    repo = SimpleNamespace(record_member_nickname=record_member_nickname)
     member = SimpleNamespace(id="42", guild=SimpleNamespace(id="123"), nick="", bot=False)
 
     gateway._sync_member_nickname_state(repo, member, source="member_join")
 
-    assert calls == [("123", "42", "Raid Nick", "member_join")]
+    assert calls == [("123", "42", "", "member_join")]
 
 
-def test_sync_member_nickname_state_skips_empty_member_remove_without_stored_nickname() -> None:
+def test_sync_member_nickname_state_uses_snapshot_fallback_without_recorder() -> None:
     calls: list[tuple[str, str, str, str]] = []
 
-    def get_member_nickname_state(_ctx, guild_id: str, user_id: str):
-        assert guild_id == "123"
-        assert user_id == "42"
-        return None
-
-    def record_member_nickname(
+    def save_member_nickname_snapshot(
         _ctx,
         guild_id: str,
         user_id: str,
         nickname: str,
         _seen_at,
         *,
-        source: str = "",
-        previous_nickname: str | None = None,
+        pending_restore: bool = False,
     ):
-        calls.append((guild_id, user_id, nickname, source))
+        calls.append((guild_id, user_id, nickname, str(pending_restore)))
 
-    repo = SimpleNamespace(
-        get_member_nickname_state=get_member_nickname_state,
-        record_member_nickname=record_member_nickname,
-    )
+    repo = SimpleNamespace(save_member_nickname_snapshot=save_member_nickname_snapshot)
     member = SimpleNamespace(id="42", guild=SimpleNamespace(id="123"), nick="", bot=False)
 
     gateway._sync_member_nickname_state(repo, member, source="member_remove")
 
-    assert calls == []
+    assert calls == [("123", "42", "", "False")]
+
+
+def test_save_member_nickname_snapshot_marks_pending_and_preserves_stored_value() -> None:
+    calls: list[tuple[str, str, str, bool]] = []
+
+    def get_member_nickname_state(_ctx, guild_id: str, user_id: str):
+        assert guild_id == "123"
+        assert user_id == "42"
+        return SimpleNamespace(nickname="Stored Nick")
+
+    def save_member_nickname_snapshot(
+        _ctx,
+        guild_id: str,
+        user_id: str,
+        nickname: str,
+        _seen_at,
+        *,
+        pending_restore: bool = True,
+    ):
+        calls.append((guild_id, user_id, nickname, pending_restore))
+
+    repo = SimpleNamespace(
+        get_member_nickname_state=get_member_nickname_state,
+        save_member_nickname_snapshot=save_member_nickname_snapshot,
+    )
+    member = SimpleNamespace(id="42", guild=SimpleNamespace(id="123"), nick="", bot=False)
+
+    gateway._save_member_nickname_snapshot(repo, member)
+
+    assert calls == [("123", "42", "Stored Nick", True)]
+
+
+async def test_restore_member_nickname_applies_stored_value_and_marks_restored(monkeypatch) -> None:
+    restored: list[tuple[str, str, str]] = []
+    edit_calls: list[str | None] = []
+
+    class _Repo:
+        def get_member_nickname_state(self, _ctx, _guild_id: str, _user_id: str):
+            return SimpleNamespace(nickname="Raid Nick", pending_restore=True, last_seen_at=None)
+
+        def mark_member_nickname_restored(self, _ctx, guild_id: str, user_id: str, nickname: str, _restored_at):
+            restored.append((guild_id, user_id, nickname))
+
+    async def edit(*, nick: str | None = None, reason: str):
+        assert reason == "nickname restore"
+        edit_calls.append(nick)
+
+    member = SimpleNamespace(
+        id="42",
+        guild=SimpleNamespace(id="123", owner_id="500"),
+        nick="",
+        top_role=SimpleNamespace(position=1),
+        edit=edit,
+    )
+
+    async def _resolve_bot_member(_client, _guild):
+        return SimpleNamespace(
+            top_role=SimpleNamespace(position=10),
+            guild_permissions=SimpleNamespace(manage_nicknames=True, administrator=False),
+        )
+
+    monkeypatch.setattr(gateway, "_resolve_bot_member", _resolve_bot_member)
+
+    result = await gateway._restore_member_nickname(object(), _Repo(), member, source="member_join")
+
+    assert result is True
+    assert edit_calls == ["Raid Nick"]
+    assert restored == [("123", "42", "Raid Nick")]
+
+
+async def test_restore_member_nickname_keeps_pending_when_permissions_missing(monkeypatch) -> None:
+    snapshots: list[tuple[str, bool]] = []
+
+    class _Repo:
+        def get_member_nickname_state(self, _ctx, _guild_id: str, _user_id: str):
+            return SimpleNamespace(nickname="Raid Nick", pending_restore=True, last_seen_at=None)
+
+        def save_member_nickname_snapshot(
+            self,
+            _ctx,
+            _guild_id: str,
+            _user_id: str,
+            nickname: str,
+            _seen_at,
+            *,
+            pending_restore: bool = True,
+        ):
+            snapshots.append((nickname, pending_restore))
+
+    async def edit(*, nick: str | None = None, reason: str):
+        raise AssertionError("nickname edit should not be called without permissions")
+
+    member = SimpleNamespace(
+        id="42",
+        guild=SimpleNamespace(id="123", owner_id="500"),
+        nick="",
+        top_role=SimpleNamespace(position=10),
+        edit=edit,
+    )
+
+    async def _resolve_bot_member(_client, _guild):
+        return SimpleNamespace(
+            top_role=SimpleNamespace(position=1),
+            guild_permissions=SimpleNamespace(manage_nicknames=False, administrator=False),
+        )
+
+    monkeypatch.setattr(gateway, "_resolve_bot_member", _resolve_bot_member)
+
+    result = await gateway._restore_member_nickname(object(), _Repo(), member, source="reconciliation")
+
+    assert result is False
+    assert snapshots == [("Raid Nick", True)]
 
 
 def test_record_member_nickname_change_persists_only_real_changes() -> None:
@@ -241,8 +334,10 @@ def test_record_member_nickname_change_persists_only_real_changes() -> None:
         *,
         source: str = "",
         previous_nickname: str | None = None,
+        pending_restore: bool = False,
     ):
         assert previous_nickname == "Old Nick"
+        assert pending_restore is False
         calls.append((guild_id, user_id, nickname, source))
 
     repo = SimpleNamespace(record_member_nickname=record_member_nickname)
@@ -377,6 +472,29 @@ async def test_reconcile_member_roles_skips_sync_when_restore_is_deferred(monkey
     assert sync_calls == []
 
 
+async def test_reconcile_member_nicknames_marks_absent_members_pending(monkeypatch) -> None:
+    marked_pending: list[str] = []
+
+    class _Repo:
+        def list_member_nickname_states_by_guild(self, _ctx, _guild_id: str, _limit: int = 0):
+            return [SimpleNamespace(user_id="42", pending_restore=False)]
+
+        def mark_member_nickname_pending(self, _ctx, _guild_id: str, user_id: str):
+            marked_pending.append(user_id)
+
+    guild = SimpleNamespace(id=123)
+    client = SimpleNamespace(get_guild=lambda guild_id: guild if int(guild_id) == 123 else None, guilds=[guild])
+
+    async def _resolve_member(_guild, _user_id: str):
+        return None
+
+    monkeypatch.setattr(gateway, "_resolve_member", _resolve_member)
+
+    await gateway._reconcile_member_nicknames(client, _Repo(), "123")
+
+    assert marked_pending == ["42"]
+
+
 async def test_restore_member_roles_skips_when_reconciliation_not_pending(monkeypatch) -> None:
     touched: list[str] = []
 
@@ -494,13 +612,21 @@ async def test_sync_current_guild_member_roles_skips_pending_restore_members(mon
 async def test_sync_current_guild_member_nicknames_skips_bots(monkeypatch) -> None:
     synced: list[str] = []
 
-    def _sync_member_nickname_state(_repo, member, *, source: str = "sync"):
+    class _Repo:
+        def get_member_nickname_state(self, _ctx, _guild_id: str, user_id: str):
+            if user_id == "42":
+                return SimpleNamespace(pending_restore=True)
+            return SimpleNamespace(pending_restore=False)
+
+    def _sync_member_nickname_state(_repo, member, *, source: str = "sync", pending_restore: bool = False):
+        assert pending_restore is False
         synced.append(f"{member.id}:{source}")
 
     guild = SimpleNamespace(
         id=123,
         members=[
             SimpleNamespace(id="42", bot=False, guild=SimpleNamespace(id="123"), nick="One"),
+            SimpleNamespace(id="77", bot=False, guild=SimpleNamespace(id="123"), nick="Three"),
             SimpleNamespace(id="99", bot=True, guild=SimpleNamespace(id="123"), nick="Two"),
         ],
     )
@@ -508,9 +634,9 @@ async def test_sync_current_guild_member_nicknames_skips_bots(monkeypatch) -> No
 
     monkeypatch.setattr(gateway, "_sync_member_nickname_state", _sync_member_nickname_state)
 
-    await gateway._sync_current_guild_member_nicknames(client, object(), "123")
+    await gateway._sync_current_guild_member_nicknames(client, _Repo(), "123")
 
-    assert synced == ["42:guild_sync"]
+    assert synced == ["77:guild_sync"]
 
 
 async def _boot_gateway(monkeypatch, fake_repo: FakeRepo) -> object:

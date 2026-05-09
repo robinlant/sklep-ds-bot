@@ -17,6 +17,7 @@ with warnings.catch_warnings():
 from nats.aio.client import Client as NATS
 from pymongo import MongoClient
 
+from services.chat_templates import voice_session_summary
 from voice_tracker.bus import Bus
 from voice_tracker import domain
 from voice_tracker.gateway import Service as GatewayService, install_event_listener, summary_from_payload
@@ -226,8 +227,13 @@ async def _resolve_channel(client: discord.Client, channel_id: str):
 
 async def _send_summary(client: discord.Client, channel_id: str, message: str) -> None:
     channel = await _resolve_channel(client, channel_id)
-    embed = discord.Embed(title="Voice Session Summary", description=message, color=SUMMARY_EMBED_COLOR)
-    embed.set_footer(text="Voice Tracker")
+    payload = voice_session_summary.render(message=message, color=SUMMARY_EMBED_COLOR)
+    embed = discord.Embed(
+        title=str(payload.get("title", "Voice Session Summary")),
+        description=str(payload.get("description", message)),
+        color=int(payload.get("color", SUMMARY_EMBED_COLOR)),
+    )
+    embed.set_footer(text=str(payload.get("footer", "Voice Tracker")))
     await channel.send(embed=embed)
 
 
@@ -392,6 +398,25 @@ def _member_nickname(member: object | None) -> str:
     return str(getattr(member, "nick", "") or "").strip()
 
 
+def _member_top_role_position(member: object | None) -> int:
+    top_role = getattr(member, "top_role", None)
+    try:
+        return int(getattr(top_role, "position", -1) or -1)
+    except (TypeError, ValueError):
+        return -1
+
+
+def _can_manage_member_nickname(member: discord.Member, bot_member: discord.Member) -> bool:
+    permissions = getattr(bot_member, "guild_permissions", None)
+    if not bool(getattr(permissions, "manage_nicknames", False) or getattr(permissions, "administrator", False)):
+        return False
+    guild = getattr(member, "guild", None)
+    owner_id = str(getattr(guild, "owner_id", "") or getattr(getattr(guild, "owner", None), "id", "") or "")
+    if owner_id != "" and owner_id == str(getattr(member, "id", "") or ""):
+        return False
+    return _member_top_role_position(bot_member) > _member_top_role_position(member)
+
+
 def _save_member_role_snapshot(repo: Repository, member: discord.Member) -> None:
     saver = getattr(repo, "save_member_role_snapshot", None)
     if not callable(saver):
@@ -414,28 +439,42 @@ def _sync_member_role_state(repo: Repository, member: discord.Member) -> None:
     saver(None, guild_id, user_id, _member_role_ids(member), _utc_now(), pending_restore=False)
 
 
-def _sync_member_nickname_state(repo: Repository, member: discord.Member, *, source: str = "sync") -> None:
+def _save_member_nickname_snapshot(repo: Repository, member: discord.Member) -> None:
+    saver = getattr(repo, "save_member_nickname_snapshot", None)
+    if not callable(saver):
+        return
     guild_id = str(getattr(getattr(member, "guild", None), "id", "") or "")
     user_id = str(getattr(member, "id", "") or "")
     if guild_id == "" or user_id == "" or bool(getattr(member, "bot", False)):
         return
     nickname = _member_nickname(member)
-    if nickname == "" and source in {"member_join", "member_remove"}:
+    if nickname == "":
         getter = getattr(repo, "get_member_nickname_state", None)
         if callable(getter):
             current = getter(None, guild_id, user_id)
-            stored_nickname = str(getattr(current, "nickname", "") or "").strip()
-            if stored_nickname != "":
-                nickname = stored_nickname
-        if nickname == "":
-            return
+            nickname = str(getattr(current, "nickname", "") or "").strip()
+    saver(None, guild_id, user_id, nickname, _utc_now(), pending_restore=True)
+
+
+def _sync_member_nickname_state(
+    repo: Repository,
+    member: discord.Member,
+    *,
+    source: str = "sync",
+    pending_restore: bool = False,
+) -> None:
+    guild_id = str(getattr(getattr(member, "guild", None), "id", "") or "")
+    user_id = str(getattr(member, "id", "") or "")
+    if guild_id == "" or user_id == "" or bool(getattr(member, "bot", False)):
+        return
+    nickname = _member_nickname(member)
     recorder = getattr(repo, "record_member_nickname", None)
     if callable(recorder):
-        recorder(None, guild_id, user_id, nickname, _utc_now(), source=source)
+        recorder(None, guild_id, user_id, nickname, _utc_now(), source=source, pending_restore=pending_restore)
         return
     saver = getattr(repo, "save_member_nickname_snapshot", None)
     if callable(saver):
-        saver(None, guild_id, user_id, nickname, _utc_now())
+        saver(None, guild_id, user_id, nickname, _utc_now(), pending_restore=pending_restore)
 
 
 def _record_member_nickname_change(
@@ -455,7 +494,16 @@ def _record_member_nickname_change(
         return
     recorder = getattr(repo, "record_member_nickname", None)
     if callable(recorder):
-        recorder(None, guild_id, user_id, after_nickname, _utc_now(), source=source, previous_nickname=before_nickname)
+        recorder(
+            None,
+            guild_id,
+            user_id,
+            after_nickname,
+            _utc_now(),
+            source=source,
+            previous_nickname=before_nickname,
+            pending_restore=False,
+        )
         return
     appender = getattr(repo, "append_member_nickname_change", None)
     saver = getattr(repo, "save_member_nickname_snapshot", None)
@@ -473,7 +521,7 @@ def _record_member_nickname_change(
             ),
         )
     if callable(saver):
-        saver(None, guild_id, user_id, after_nickname, now)
+        saver(None, guild_id, user_id, after_nickname, now, pending_restore=False)
 
 
 async def _role_lookup_map(guild: discord.Guild) -> tuple[dict[str, discord.Role], bool]:
@@ -551,7 +599,7 @@ async def _restore_member_roles(
             logger.warning("role restore skipped unsafe role guild=%s member=%s role=%s source=%s", guild_id, user_id, role_id, source)
             continue
         try:
-            await member.add_roles(role, reason="Voice Tracker role restore")
+            await member.add_roles(role, reason="role restore")
             retained_ids.add(role_id)
         except Exception:
             retained_ids.add(role_id)
@@ -601,6 +649,103 @@ async def _restore_member_roles(
     return True
 
 
+async def _restore_member_nickname(
+    client: discord.Client,
+    repo: Repository,
+    member: discord.Member,
+    *,
+    source: str,
+) -> bool:
+    guild_id = str(getattr(getattr(member, "guild", None), "id", "") or "")
+    user_id = str(getattr(member, "id", "") or "")
+    if guild_id == "" or user_id == "":
+        return True
+    getter = getattr(repo, "get_member_nickname_state", None)
+    if not callable(getter):
+        return True
+    state = getter(None, guild_id, user_id)
+    if state is None:
+        return True
+    pending_restore = bool(getattr(state, "pending_restore", False))
+    if source == "reconciliation" and not pending_restore:
+        return True
+    stored_nickname = str(getattr(state, "nickname", "") or "").strip()
+    current_nickname = _member_nickname(member)
+    marker = getattr(repo, "mark_member_nickname_restored", None)
+    saver = getattr(repo, "save_member_nickname_snapshot", None)
+    if current_nickname == stored_nickname:
+        if callable(marker):
+            marker(None, guild_id, user_id, stored_nickname, _utc_now())
+        elif callable(saver):
+            saver(
+                None,
+                guild_id,
+                user_id,
+                stored_nickname,
+                getattr(state, "last_seen_at", None) or _utc_now(),
+                pending_restore=False,
+            )
+        return True
+
+    bot_member = await _resolve_bot_member(client, member.guild)
+    if bot_member is None:
+        logger.warning("nickname restore skipped guild=%s member=%s source=%s missing bot member", guild_id, user_id, source)
+        return False
+    if not _can_manage_member_nickname(member, bot_member):
+        if callable(saver):
+            saver(
+                None,
+                guild_id,
+                user_id,
+                stored_nickname,
+                getattr(state, "last_seen_at", None) or _utc_now(),
+                pending_restore=True,
+            )
+        logger.warning("nickname restore deferred guild=%s member=%s source=%s missing permissions or hierarchy", guild_id, user_id, source)
+        return False
+
+    target_nick = stored_nickname if stored_nickname != "" else None
+    try:
+        await member.edit(nick=target_nick, reason="nickname restore")
+    except discord.Forbidden:
+        if callable(saver):
+            saver(
+                None,
+                guild_id,
+                user_id,
+                stored_nickname,
+                getattr(state, "last_seen_at", None) or _utc_now(),
+                pending_restore=True,
+            )
+        logger.warning("nickname restore forbidden guild=%s member=%s source=%s", guild_id, user_id, source)
+        return False
+    except Exception:
+        if callable(saver):
+            saver(
+                None,
+                guild_id,
+                user_id,
+                stored_nickname,
+                getattr(state, "last_seen_at", None) or _utc_now(),
+                pending_restore=True,
+            )
+        logger.exception("nickname restore failed guild=%s member=%s source=%s", guild_id, user_id, source)
+        return False
+
+    if callable(marker):
+        marker(None, guild_id, user_id, stored_nickname, _utc_now())
+    elif callable(saver):
+        saver(
+            None,
+            guild_id,
+            user_id,
+            stored_nickname,
+            getattr(state, "last_seen_at", None) or _utc_now(),
+            pending_restore=False,
+        )
+    return True
+
+
 async def _reconcile_member_roles(client: discord.Client, repo: Repository, guild_id: str, limit: int = 0) -> None:
     guild = _guild_from_client(client, guild_id)
     if guild is None:
@@ -641,6 +786,46 @@ async def _reconcile_member_roles(client: discord.Client, repo: Repository, guil
             logger.exception("member role reconciliation sync failed guild=%s member=%s", guild_id, user_id)
 
 
+async def _reconcile_member_nicknames(client: discord.Client, repo: Repository, guild_id: str, limit: int = 0) -> None:
+    guild = _guild_from_client(client, guild_id)
+    if guild is None:
+        return
+    loader = getattr(repo, "list_member_nickname_states_by_guild", None)
+    if not callable(loader):
+        return
+    states = loader(None, guild_id, limit)
+    mark_pending = getattr(repo, "mark_member_nickname_pending", None)
+    for state in states:
+        user_id = str(getattr(state, "user_id", "") or "")
+        if user_id == "":
+            continue
+        try:
+            member = await _resolve_member(guild, user_id)
+        except Exception:
+            logger.exception("member nickname reconciliation resolve failed guild=%s member=%s", guild_id, user_id)
+            continue
+        if member is None:
+            if callable(mark_pending) and not bool(getattr(state, "pending_restore", False)):
+                try:
+                    mark_pending(None, guild_id, user_id)
+                except Exception:
+                    logger.exception("member nickname reconciliation pending mark failed guild=%s member=%s", guild_id, user_id)
+            continue
+        if bool(getattr(member, "bot", False)):
+            continue
+        try:
+            restored = await _restore_member_nickname(client, repo, member, source="reconciliation")
+        except Exception:
+            logger.exception("member nickname reconciliation restore failed guild=%s member=%s", guild_id, user_id)
+            continue
+        if not restored:
+            continue
+        try:
+            _sync_member_nickname_state(repo, member, source="reconciliation_sync", pending_restore=False)
+        except Exception:
+            logger.exception("member nickname reconciliation sync failed guild=%s member=%s", guild_id, user_id)
+
+
 async def _sync_current_guild_member_roles(client: discord.Client, repo: Repository, guild_id: str) -> None:
     guild = _guild_from_client(client, guild_id)
     if guild is None:
@@ -667,11 +852,19 @@ async def _sync_current_guild_member_nicknames(client: discord.Client, repo: Rep
     guild = _guild_from_client(client, guild_id)
     if guild is None:
         return
+    state_getter = getattr(repo, "get_member_nickname_state", None)
     for member in list(getattr(guild, "members", []) or []):
         if bool(getattr(member, "bot", False)):
             continue
+        if callable(state_getter):
+            try:
+                state = state_getter(None, guild_id, str(getattr(member, "id", "") or ""))
+            except Exception:
+                state = None
+            if bool(getattr(state, "pending_restore", False)):
+                continue
         try:
-            _sync_member_nickname_state(repo, member, source="guild_sync")
+            _sync_member_nickname_state(repo, member, source="guild_sync", pending_restore=False)
         except Exception:
             member_id = str(getattr(member, "id", "") or "")
             logger.exception("member nickname sync failed guild=%s member=%s", guild_id, member_id)
@@ -1528,6 +1721,7 @@ async def main() -> None:
         await invite_attribution.seed_on_ready()
         await voice_controller.reconcile()
         await _reconcile_member_roles(client, repo, cfg.discord_guild_id)
+        await _reconcile_member_nicknames(client, repo, cfg.discord_guild_id)
         await _sync_current_guild_member_roles(client, repo, cfg.discord_guild_id)
         await _sync_current_guild_member_nicknames(client, repo, cfg.discord_guild_id)
 
@@ -1564,10 +1758,17 @@ async def main() -> None:
                 _sync_member_role_state(repo, member)
             except Exception:
                 logger.exception("role state sync failed guild=%s member=%s", member.guild.id, member.id)
+        nickname_restored = True
         try:
-            _sync_member_nickname_state(repo, member, source="member_join")
+            nickname_restored = await _restore_member_nickname(client, repo, member, source="member_join")
         except Exception:
-            logger.exception("member nickname sync failed guild=%s member=%s", member.guild.id, member.id)
+            nickname_restored = False
+            logger.exception("member nickname restore failed guild=%s member=%s", member.guild.id, member.id)
+        if nickname_restored:
+            try:
+                _sync_member_nickname_state(repo, member, source="member_join", pending_restore=False)
+            except Exception:
+                logger.exception("member nickname sync failed guild=%s member=%s", member.guild.id, member.id)
         role_id = _autorole_id_for_guild(repo, str(member.guild.id))
         if role_id == "":
             return
@@ -1610,7 +1811,7 @@ async def main() -> None:
         except Exception:
             logger.exception("role snapshot failed guild=%s member=%s", member.guild.id, member.id)
         try:
-            _sync_member_nickname_state(repo, member, source="member_remove")
+            _save_member_nickname_snapshot(repo, member)
         except Exception:
             logger.exception("member nickname snapshot failed guild=%s member=%s", member.guild.id, member.id)
 
@@ -1832,6 +2033,7 @@ async def main() -> None:
             await asyncio.sleep(300)
             try:
                 await _reconcile_member_roles(client, repo, cfg.discord_guild_id)
+                await _reconcile_member_nicknames(client, repo, cfg.discord_guild_id)
                 await _sync_current_guild_member_roles(client, repo, cfg.discord_guild_id)
                 await _sync_current_guild_member_nicknames(client, repo, cfg.discord_guild_id)
             except Exception:

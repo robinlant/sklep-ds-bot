@@ -2,12 +2,22 @@
 
 Discord voice-session tracker built as Python microservices with MongoDB and NATS.
 
-Last updated: May 7, 2026.
+Last updated: May 9, 2026.
 
 ## What Changed
 
 Recent production stabilization changes include:
 
+- Restored nickname persistence lifecycle to match role restore behavior:
+  - nickname snapshots are marked pending on member leave,
+  - nickname restore runs on member join and reconciliation loops,
+  - failed restore attempts keep pending state for retries.
+- Added template-based chat/audit rendering under `services/chat_templates/` with one file per output template:
+  - member join/leave activity cards,
+  - invite create/delete/used activity cards,
+  - voice session summary card,
+  - dashboard ranking card.
+- Refactored `services.activity`, `services.gateway`, and `services.commands` to render embeds via these templates for easier customization.
 - Migrated invite behavior from env-first controls to persisted guild settings with automatic internal management.
 - Added a new `services.activity` service that consumes `activity.events` and posts member/invite lifecycle embeds.
 - Simplified `/settings` UX: internal invite mechanics are hidden, and activity feed is controlled by a single mode (`off|minimal|full`) plus channel selection.

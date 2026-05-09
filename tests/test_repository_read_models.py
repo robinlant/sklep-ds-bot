@@ -526,6 +526,51 @@ def test_record_member_nickname_appends_history_only_when_nickname_changes() -> 
     assert len(repo.member_nickname_history.documents) == 1
 
 
+def test_record_member_nickname_updates_pending_restore_flag() -> None:
+    repo = Repository(_FakeDb())
+    base = datetime(2026, 4, 5, 18, 0, tzinfo=UTC)
+
+    state_pending, _ = repo.record_member_nickname(
+        None,
+        "g1",
+        "u11",
+        "Pending Nick",
+        base,
+        source="member_remove",
+        pending_restore=True,
+    )
+    state_synced, _ = repo.record_member_nickname(
+        None,
+        "g1",
+        "u11",
+        "Pending Nick",
+        base + timedelta(minutes=1),
+        source="member_join",
+        pending_restore=False,
+    )
+
+    assert state_pending is not None
+    assert state_pending.pending_restore is True
+    assert state_synced is not None
+    assert state_synced.pending_restore is False
+
+
+def test_mark_member_nickname_restore_and_pending_round_trip() -> None:
+    repo = Repository(_FakeDb())
+    base = datetime(2026, 4, 5, 18, 0, tzinfo=UTC)
+
+    repo.save_member_nickname_snapshot(None, "g1", "u12", "Raid Nick", base, pending_restore=True)
+    restored = repo.mark_member_nickname_restored(None, "g1", "u12", "Raid Nick", base + timedelta(minutes=1))
+    repended = repo.mark_member_nickname_pending(None, "g1", "u12")
+
+    assert restored is not None
+    assert restored.pending_restore is False
+    assert restored.last_restored_at == base + timedelta(minutes=1)
+    assert repended is not None
+    assert repended.pending_restore is True
+    assert repended.last_restored_at == base + timedelta(minutes=1)
+
+
 def test_ensure_indexes_adds_repository_read_model_indexes() -> None:
     db = _FakeDb()
     repo = Repository(db)
@@ -541,5 +586,6 @@ def test_ensure_indexes_adds_repository_read_model_indexes() -> None:
     member_nickname_state_indexes = [call["keys"] for call in db.collections["member_nickname_state"].index_calls]
     assert [("guildId", 1), ("userId", 1)] in member_nickname_state_indexes
     assert [("guildId", 1), ("updatedAt", -1)] in member_nickname_state_indexes
+    assert [("guildId", 1), ("pendingRestore", 1), ("updatedAt", -1)] in member_nickname_state_indexes
     member_nickname_history_indexes = [call["keys"] for call in db.collections["member_nickname_history"].index_calls]
     assert [("guildId", 1), ("userId", 1), ("changedAt", -1)] in member_nickname_history_indexes

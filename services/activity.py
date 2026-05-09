@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import warnings
 from datetime import UTC, datetime
@@ -16,6 +15,12 @@ with warnings.catch_warnings():
 from nats.aio.client import Client as NATS
 from pymongo import MongoClient
 
+from services.chat_templates import activity_invite_create
+from services.chat_templates import activity_invite_delete
+from services.chat_templates import activity_invite_used
+from services.chat_templates import activity_member_join
+from services.chat_templates import activity_member_leave
+from services.chat_templates import activity_unknown_event
 from voice_tracker import domain
 from voice_tracker.bus import Bus
 from voice_tracker.repository import Repository
@@ -44,26 +49,6 @@ def _activity_channel_id(repo: Repository, guild_id: str) -> str:
     return str(getattr(settings, "activity_channel_id", "") or "").strip()
 
 
-def _event_label(event_type: str) -> str:
-    return {
-        domain.ACTIVITY_EVENT_MEMBER_JOIN: "Member Joined",
-        domain.ACTIVITY_EVENT_MEMBER_LEAVE: "Member Left",
-        domain.ACTIVITY_EVENT_INVITE_CREATE: "Invite Created",
-        domain.ACTIVITY_EVENT_INVITE_DELETE: "Invite Deleted",
-        domain.ACTIVITY_EVENT_INVITE_USED: "Invite Used",
-    }.get(event_type, "Activity Event")
-
-
-def _event_color(event_type: str) -> int:
-    return {
-        domain.ACTIVITY_EVENT_MEMBER_JOIN: 0x2ECC71,
-        domain.ACTIVITY_EVENT_MEMBER_LEAVE: 0xE74C3C,
-        domain.ACTIVITY_EVENT_INVITE_CREATE: 0x3498DB,
-        domain.ACTIVITY_EVENT_INVITE_DELETE: 0xE67E22,
-        domain.ACTIVITY_EVENT_INVITE_USED: 0x9B59B6,
-    }.get(event_type, 0x5865F2)
-
-
 def _member_label(event: domain.ActivityEvent) -> str:
     return _label_with_mention(event.member_name, event.member_user_id)
 
@@ -86,44 +71,47 @@ def _label_with_mention(name: str, user_id: str) -> str:
 
 
 def _embed_description(event: domain.ActivityEvent) -> str:
+    return str(_template_payload(event).get("description", ""))
+
+
+def _template_payload(event: domain.ActivityEvent) -> dict[str, object]:
     if event.event_type == domain.ACTIVITY_EVENT_MEMBER_JOIN:
-        return f"Member: {_member_label(event)}"
+        return activity_member_join.render(member_label=_member_label(event))
     if event.event_type == domain.ACTIVITY_EVENT_MEMBER_LEAVE:
-        return f"Member: {_member_label(event)}"
+        return activity_member_leave.render(member_label=_member_label(event))
     if event.event_type == domain.ACTIVITY_EVENT_INVITE_CREATE:
-        return (
-            f"Code: `{event.invite_code or 'unknown'}`\n"
-            f"URL: {event.invite_url or 'unknown'}\n"
-            f"Created by: {_actor_label(event)}"
+        return activity_invite_create.render(
+            invite_code=event.invite_code,
+            invite_url=event.invite_url,
+            actor_label=_actor_label(event),
         )
     if event.event_type == domain.ACTIVITY_EVENT_INVITE_DELETE:
-        return (
-            f"Code: `{event.invite_code or 'unknown'}`\n"
-            f"URL: {event.invite_url or 'unknown'}\n"
-            f"Deleted invite actor: {_actor_label(event)}"
+        return activity_invite_delete.render(
+            invite_code=event.invite_code,
+            invite_url=event.invite_url,
+            actor_label=_actor_label(event),
         )
     if event.event_type == domain.ACTIVITY_EVENT_INVITE_USED:
-        status = event.attribution_status or "unknown"
-        if status == domain.INVITE_ATTRIBUTION_STATUS_EXACT:
-            return (
-                f"Member: {_member_label(event)}\n"
-                f"Code: `{event.invite_code or 'unknown'}`\n"
-                f"URL: {event.invite_url or 'unknown'}\n"
-                f"Inviter: {_actor_label(event)}\n"
-                f"Attribution: {status}"
-            )
-        return f"Member: {_member_label(event)}\nAttribution: {status}"
-    return json.dumps(event.to_dict(), ensure_ascii=False)
+        return activity_invite_used.render(
+            member_label=_member_label(event),
+            attribution_status=event.attribution_status,
+            invite_code=event.invite_code,
+            invite_url=event.invite_url,
+            actor_label=_actor_label(event),
+            exact_status_value=domain.INVITE_ATTRIBUTION_STATUS_EXACT,
+        )
+    return activity_unknown_event.render(payload=event.to_dict())
 
 
 def _build_embed(event: domain.ActivityEvent) -> discord.Embed:
+    payload = _template_payload(event)
     embed = discord.Embed(
-        title=_event_label(event.event_type),
-        description=_embed_description(event),
-        color=_event_color(event.event_type),
+        title=str(payload.get("title", "Activity Event")),
+        description=str(payload.get("description", "")),
+        color=int(payload.get("color", 0x5865F2)),
         timestamp=event.occurred_at or _utc_now(),
     )
-    embed.set_footer(text="Voice Tracker Activity")
+    embed.set_footer(text=str(payload.get("footer", "Voice Tracker Activity")))
     return embed
 
 

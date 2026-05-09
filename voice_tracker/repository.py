@@ -122,6 +122,7 @@ class Repository:
         self.member_nickname_state.create_index([("guildId", 1), ("userId", 1)], unique=True)
         self.member_nickname_state.create_index([("guildId", 1), ("updatedAt", -1)])
         self.member_nickname_state.create_index([("guildId", 1), ("lastSeenAt", -1)])
+        self.member_nickname_state.create_index([("guildId", 1), ("pendingRestore", 1), ("updatedAt", -1)])
 
         self.member_nickname_history.create_index([("guildId", 1), ("userId", 1), ("changedAt", -1)])
         self.member_nickname_history.create_index([("guildId", 1), ("changedAt", -1)])
@@ -517,6 +518,8 @@ class Repository:
                     "nickname": payload["nickname"],
                     "updatedAt": payload["updatedAt"],
                     "lastSeenAt": payload.get("lastSeenAt"),
+                    "lastRestoredAt": payload.get("lastRestoredAt"),
+                    "pendingRestore": bool(payload.get("pendingRestore", False)),
                 }
             },
             upsert=True,
@@ -530,6 +533,8 @@ class Repository:
         user_id: str,
         nickname: str,
         seen_at: datetime | None = None,
+        *,
+        pending_restore: bool = True,
     ) -> MemberNicknameState | None:
         return self.upsert_member_nickname_state(
             None,
@@ -539,8 +544,67 @@ class Repository:
                 nickname=str(nickname or "").strip(),
                 last_seen_at=seen_at or _utc_now(),
                 updated_at=_utc_now(),
+                pending_restore=pending_restore,
             ),
         )
+
+    def mark_member_nickname_restored(
+        self,
+        _ctx: Any,
+        guild_id: str,
+        user_id: str,
+        nickname: str,
+        restored_at: datetime | None = None,
+    ) -> MemberNicknameState | None:
+        current = self.get_member_nickname_state(None, guild_id, user_id)
+        return self.upsert_member_nickname_state(
+            None,
+            MemberNicknameState(
+                guild_id=guild_id,
+                user_id=user_id,
+                nickname=str(nickname or "").strip(),
+                last_seen_at=getattr(current, "last_seen_at", None),
+                updated_at=_utc_now(),
+                last_restored_at=restored_at or _utc_now(),
+                pending_restore=False,
+            ),
+        )
+
+    def mark_member_nickname_pending(self, _ctx: Any, guild_id: str, user_id: str) -> MemberNicknameState | None:
+        current = self.get_member_nickname_state(None, guild_id, user_id)
+        if current is None:
+            return None
+        return self.upsert_member_nickname_state(
+            None,
+            MemberNicknameState(
+                guild_id=guild_id,
+                user_id=user_id,
+                nickname=str(getattr(current, "nickname", "") or "").strip(),
+                last_seen_at=getattr(current, "last_seen_at", None),
+                updated_at=_utc_now(),
+                last_restored_at=getattr(current, "last_restored_at", None),
+                pending_restore=True,
+            ),
+        )
+
+    def list_member_nickname_states_by_guild(
+        self,
+        _ctx: Any,
+        guild_id: str,
+        limit: int = 0,
+        *,
+        pending_restore_only: bool = False,
+    ) -> list[MemberNicknameState]:
+        guild_id = str(guild_id or "").strip()
+        if guild_id == "":
+            return []
+        query: dict[str, Any] = {"guildId": guild_id}
+        if pending_restore_only:
+            query["pendingRestore"] = True
+        cursor = self.member_nickname_state.find(query).sort([("updatedAt", -1)])
+        if int(limit or 0) > 0:
+            cursor = cursor.limit(max(1, int(limit)))
+        return [item for item in (MemberNicknameState.from_mongo(doc) for doc in _cursor_all(cursor)) if item is not None]
 
     def append_member_nickname_change(self, _ctx: Any, change: MemberNicknameChange | None) -> bool:
         if change is None or change.id == "" or change.guild_id == "" or change.user_id == "":
@@ -589,6 +653,7 @@ class Repository:
         *,
         source: str = "",
         previous_nickname: str | None = None,
+        pending_restore: bool = False,
     ) -> tuple[MemberNicknameState | None, MemberNicknameChange | None]:
         guild_id = str(guild_id or "").strip()
         user_id = str(user_id or "").strip()
@@ -611,7 +676,14 @@ class Repository:
                 source=source,
             )
             self.append_member_nickname_change(None, change)
-        state = self.save_member_nickname_snapshot(None, guild_id, user_id, cleaned_nickname, now)
+        state = self.save_member_nickname_snapshot(
+            None,
+            guild_id,
+            user_id,
+            cleaned_nickname,
+            now,
+            pending_restore=pending_restore,
+        )
         return state, change
 
     def list_closed_sessions_pending_notification(self, _ctx: Any) -> list[Session]:
